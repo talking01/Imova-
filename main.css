@@ -1,0 +1,71 @@
+/* Imova — main.css : couleurs, thèmes clair/sombre, base et mise en page */
+:root {
+  --navy-900: #0B2545;
+  --navy-700: #13315C;
+  --gold: #D4A24C;
+  --gold-soft: #F3E3BF;
+
+  --bg: #F5F7FA;
+  --surface: #FFFFFF;
+  --surface-2: #EEF2F7;
+  --text: #0F1B2D;
+  --text-muted: #5B6B80;
+  --border: #E1E7EF;
+  --primary: #13315C;
+  --on-primary: #FFFFFF;
+  --accent: #D4A24C;
+  --danger: #D64545;
+  --success: #1E9E6A;
+
+  --glass-bg: rgba(255, 255, 255, 0.62);
+  --glass-border: rgba(255, 255, 255, 0.75);
+  --glass-shadow: 0 8px 28px rgba(11, 37, 69, 0.12);
+
+  --radius: 16px;
+  --radius-pill: 999px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --page-max: 640px;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+}
+
+[data-theme="dark"] {
+  --bg: #0A1424;
+  --surface: #111F36;
+  --surface-2: #172844;
+  --text: #EAF0F8;
+  --text-muted: #9AABC2;
+  --border: #22365A;
+  --primary: #6FA8F5;
+  --on-primary: #0A1424;
+  --danger: #F26B6B;
+  --glass-bg: rgba(17, 31, 54, 0.62);
+  --glass-border: rgba(255, 255, 255, 0.10);
+  --glass-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-tap-highlight-color: transparent;
+}
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+img, video { max-width: 100%; display: block; }
+h1, h2, h3, p { margin: 0; }
+input, textarea, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.muted { color: var(--text-muted); }
+
+.app { max-width: var(--page-max); margin-inline: auto; min-height: 100vh; }
+.view { padding: 12px 12px 40px; outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}

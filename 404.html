@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr" data-theme="light">
+<head>
+  <base href="/">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Page introuvable — Imova</title>
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#0B2545">
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="main.css">
+  <link rel="stylesheet" href="components.css">
+  <link rel="stylesheet" href="responsive.css">
+  <script src="theme.js"></script>
+</head>
+<body>
+  <div class="app">
+    <div id="navbar"></div>
+    <main class="view" id="main" tabindex="-1">
+      <div class="empty">
+        <div class="empty-ic" data-icon="search" data-size="30"></div>
+        <h2>Page introuvable</h2>
+        <p>Cette adresse n'existe pas ou n'existe plus.</p>
+        <a class="btn btn-primary" href="index.html">Retour à l'accueil</a>
+      </div>
+    </main>
+  </div>
+  <div id="toast-root" aria-live="polite"></div>
+  <script type="module" src="navbar.js"></script>
+</body>
+</html>

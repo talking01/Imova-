@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0B2545">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="main.css">
+  <link rel="stylesheet" href="components.css">
+  <link rel="stylesheet" href="responsive.css">
+  <script src="theme.js"></script>
+  <title>Imova — Immobilier en RDC</title>
+  <meta name="description" content="Imova : trouvez, publiez et partagez des biens immobiliers en RDC.">
+</head>
+<body data-tab="home" data-search="true">
+  <div class="app">
+    <div id="navbar"></div>
+    <main class="view" id="main" tabindex="-1">
+      <div class="notice" id="setupNotice" hidden>
+        Firebase n'est pas encore configuré. Ouvrez <code>firebase-config.js</code> et remplacez les valeurs « VOTRE_... » par celles de votre projet.
+      </div>
+      <section class="feed" id="feed" aria-label="Annonces"></section>
+      <div id="feedEnd" style="min-height:1px"></div>
+    </main>
+  </div>
+  <div id="overlay-root"></div>
+  <div id="toast-root" aria-live="polite"></div>
+  <script type="module" src="navbar.js"></script>
+  <script type="module" src="feed.js"></script>
+</body>
+</html>

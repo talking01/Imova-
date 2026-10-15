@@ -1,0 +1,29 @@
+/* Imova — forms.css : formulaires (connexion, inscription, publication...) */
+.auth-view { padding-top: 28px; display: grid; gap: 10px; }
+.auth-brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.4rem; margin-bottom: 8px; }
+.auth-brand img { border-radius: 11px; }
+.auth-view h1 { font-size: 1.5rem; }
+.form { display: grid; gap: 16px; padding: 18px; margin-top: 8px; }
+.field { display: grid; gap: 6px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.field label, .field legend { font-weight: 600; font-size: .92rem; padding: 0; }
+.input { width: 100%; min-height: 48px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); outline: none; transition: border-color .15s, box-shadow .15s; }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(212, 162, 76, .25); }
+.input[aria-invalid="true"] { border-color: var(--danger); }
+.input-wrap { position: relative; }
+.input-wrap .input { padding-right: 48px; }
+.eye { position: absolute; top: 0; right: 0; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
+.error { color: var(--danger); font-size: .85rem; }
+.hint { color: var(--text-muted); font-size: .85rem; }
+.form-error { padding: 12px 14px; border-radius: 12px; font-size: .92rem; background: rgba(214, 69, 69, .12); color: var(--danger); }
+.form-error[data-type="success"] { background: rgba(30, 158, 106, .14); color: var(--success); }
+.form-error[data-type="info"] { background: var(--gold-soft); color: #4A3510; }
+.btn-block { width: 100%; }
+.btn[disabled] { opacity: .55; pointer-events: none; }
+.form-links { text-align: center; color: var(--text-muted); font-size: .95rem; }
+.form-links a { color: var(--primary); font-weight: 600; }
+.segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; border-radius: 14px; background: var(--surface-2); }
+.segmented label { position: relative; }
+.segmented input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.segmented span { display: flex; align-items: center; justify-content: center; min-height: 42px; border-radius: 10px; font-weight: 600; color: var(--text-muted); transition: background .15s, color .15s; }
+.segmented input:checked + span { background: var(--surface); color: var(--text); box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
+.segmented input:focus-visible + span { outline: 2px solid var(--accent); }

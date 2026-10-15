@@ -1,0 +1,9 @@
+/* Imova — responsive.css : adaptation aux écrans plus grands que le téléphone */
+@media (min-width: 768px) {
+  :root { --page-max: 720px; }
+  .view { padding: 20px 16px 56px; }
+  .navbar { padding-top: 10px; }
+}
+@media (min-width: 1100px) {
+  :root { --page-max: 760px; }
+}

@@ -1,0 +1,18 @@
+/* Imova — publish.css : page de publication d'une annonce */
+.pub-form { display: grid; gap: 18px; padding: 18px; }
+.thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.thumb { position: relative; aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: var(--surface-2); border: 1px solid var(--border); }
+.thumb > img, .thumb > video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb .tap { position: absolute; inset: 0; width: 100%; height: 100%; }
+.thumb .rm { position: absolute; top: 5px; right: 5px; width: 28px; height: 28px; border-radius: 50%; background: rgba(0, 0, 0, .6); color: #fff; display: flex; align-items: center; justify-content: center; }
+.thumb .cover-tag { position: absolute; left: 5px; bottom: 5px; padding: 2px 8px; border-radius: 999px; background: var(--accent); color: #2d2208; font-size: .7rem; font-weight: 700; }
+.thumb.add { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 4px; border: 2px dashed var(--border); background: transparent; color: var(--text-muted); font-size: .8rem; }
+.thumb.add:active { background: var(--surface-2); }
+.video-slot { max-width: 60%; }
+.pub-bar { position: sticky; bottom: 0; z-index: 25; display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 8px; padding: 10px 8px calc(10px + env(safe-area-inset-bottom)); margin: 14px -4px 0; border-radius: var(--radius) var(--radius) 0 0; }
+.pub-bar .btn { width: 100%; padding: 0 8px; }
+.progress-overlay { position: fixed; inset: 0; z-index: 90; background: rgba(5, 12, 25, .6); display: flex; align-items: center; justify-content: center; padding: 20px; }
+.progress-card { width: min(380px, 100%); padding: 22px; border-radius: 22px; display: grid; gap: 14px; text-align: center; background: var(--surface); }
+.progress-track { height: 10px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.progress-fill { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.preview-note { padding: 10px 14px; border-radius: 12px; background: var(--gold-soft); color: #4A3510; font-size: .9rem; margin-bottom: 12px; }

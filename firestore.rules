@@ -1,0 +1,216 @@
+rules_version = '2';
+// RÈGLES — Phase 3, étape 3 (annonces, profils, abonnements, avis).
+// Les règles complètes (messages, favoris, likes, signalements...) arrivent aux étapes suivantes et en Phase 4.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ───────── Fonctions utiles ─────────
+    function signedIn() { return request.auth != null; }
+
+    function userPath(id)   { return /databases/$(database)/documents/users/$(id); }
+    function followPath(follower, target) { return /databases/$(database)/documents/follows/$(follower + '_' + target); }
+    function reviewPath(target, reviewer) { return /databases/$(database)/documents/reviews/$(target + '_' + reviewer); }
+
+    // Champ facultatif : texte de longueur limitée
+    function optStr(f, max) {
+      return !(f in request.resource.data)
+        || (request.resource.data[f] is string && request.resource.data[f].size() <= max);
+    }
+    // Champ facultatif : vide, ou adresse correspondant au modèle donné
+    function optMatch(f, re, max) {
+      return !(f in request.resource.data)
+        || (request.resource.data[f] is string
+            && request.resource.data[f].size() <= max
+            && (request.resource.data[f] == '' || request.resource.data[f].matches(re)));
+    }
+    function validRating(r) { return r is int && r >= 1 && r <= 5; }
+
+    // Contenu d'une annonce : titre, description, 15 photos maximum, une vidéo maximum (adresse Cloudinary)
+    function validContent(d) {
+      return d.title is string && d.title.size() >= 1 && d.title.size() <= 100
+        && d.description is string && d.description.size() >= 1 && d.description.size() <= 2000
+        && d.images is list && d.images.size() <= 15
+        && (d.video == null
+            || (d.video is map && d.video.url is string && d.video.url.matches('https://res\\.cloudinary\\.com/.*')))
+        && d.tokens is list && d.tokens.size() <= 60
+        && d.pinned is bool;
+    }
+
+    // ───────── Annonces ─────────
+    match /properties/{id} {
+      allow read: if true;
+
+      // Publication : seulement à son nom, avec des compteurs à zéro
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['authorId', 'title', 'description', 'images', 'video', 'likesCount',
+             'viewsCount', 'pinned', 'status', 'tokens', 'createdAt', 'updatedAt'])
+        && request.resource.data.authorId == request.auth.uid
+        && validContent(request.resource.data)
+        && request.resource.data.likesCount == 0
+        && request.resource.data.viewsCount == 0
+        && request.resource.data.pinned == false
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      // Modification : l'auteur seulement, et seulement ces champs (jamais l'auteur ni les compteurs)
+      allow update: if signedIn()
+        && resource.data.authorId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['title', 'description', 'images', 'video', 'tokens', 'updatedAt', 'pinned'])
+        && validContent(request.resource.data)
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['updatedAt'])
+            || request.resource.data.updatedAt == request.time);
+
+      allow delete: if signedIn() && resource.data.authorId == request.auth.uid;
+    }
+
+    // ───────── Profils ─────────
+    match /users/{uid} {
+      allow read: if true;
+
+      // Création : uniquement son propre profil, avec des valeurs de départ imposées
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['type', 'name', 'nameLower', 'photoUrl', 'coverUrl', 'bio',
+             'followersCount', 'postsCount', 'ratingSum', 'ratingCount', 'verified', 'createdAt'])
+        && request.resource.data.type in ['particulier', 'agence']
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 60
+        && request.resource.data.nameLower is string
+        && request.resource.data.photoUrl == ''
+        && request.resource.data.coverUrl == ''
+        && request.resource.data.bio == ''
+        && request.resource.data.followersCount == 0
+        && request.resource.data.postsCount == 0
+        && request.resource.data.ratingSum == 0
+        && request.resource.data.ratingCount == 0
+        && request.resource.data.verified == false
+        && request.resource.data.createdAt == request.time;
+
+      // Modification de son propre profil : seulement ces champs
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['photoUrl', 'coverUrl', 'bio', 'description', 'phone', 'contactEmail', 'address', 'website', 'hours'])
+        && optMatch('photoUrl', 'https://res\\.cloudinary\\.com/.*', 500)
+        && optMatch('coverUrl', 'https://res\\.cloudinary\\.com/.*', 500)
+        && optMatch('website', 'https?://.*', 200)
+        && optStr('bio', 105)
+        && optStr('description', 4000)
+        && optStr('phone', 30)
+        && optStr('contactEmail', 120)
+        && optStr('address', 200)
+        && optStr('hours', 300);
+
+      // Compteur d'abonnés d'un profil : +1 seulement avec la création de l'abonnement, -1 seulement avec sa suppression
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followersCount'])
+        && (
+          (request.resource.data.followersCount == resource.data.followersCount + 1
+            && !exists(followPath(request.auth.uid, uid))
+            && existsAfter(followPath(request.auth.uid, uid)))
+          ||
+          (request.resource.data.followersCount == resource.data.followersCount - 1
+            && exists(followPath(request.auth.uid, uid))
+            && !existsAfter(followPath(request.auth.uid, uid)))
+        );
+
+      // Moyenne des avis : somme et nombre de notes modifiés seulement avec l'avis correspondant
+      allow update: if signedIn()
+        && request.auth.uid != uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratingSum', 'ratingCount'])
+        && (
+          // nouvel avis
+          (!exists(reviewPath(uid, request.auth.uid))
+            && existsAfter(reviewPath(uid, request.auth.uid))
+            && request.resource.data.ratingCount == resource.data.ratingCount + 1
+            && request.resource.data.ratingSum == resource.data.ratingSum + getAfter(reviewPath(uid, request.auth.uid)).data.rating)
+          ||
+          // note modifiée
+          (exists(reviewPath(uid, request.auth.uid))
+            && existsAfter(reviewPath(uid, request.auth.uid))
+            && request.resource.data.ratingCount == resource.data.ratingCount
+            && request.resource.data.ratingSum == resource.data.ratingSum
+                 - get(reviewPath(uid, request.auth.uid)).data.rating
+                 + getAfter(reviewPath(uid, request.auth.uid)).data.rating)
+          ||
+          // avis supprimé
+          (exists(reviewPath(uid, request.auth.uid))
+            && !existsAfter(reviewPath(uid, request.auth.uid))
+            && request.resource.data.ratingCount == resource.data.ratingCount - 1
+            && request.resource.data.ratingSum == resource.data.ratingSum
+                 - get(reviewPath(uid, request.auth.uid)).data.rating)
+        );
+
+      allow delete: if false;
+    }
+
+    // ───────── Abonnements ─────────
+    match /follows/{id} {
+      allow read: if true;
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['followerId', 'targetId', 'createdAt'])
+        && request.resource.data.followerId == request.auth.uid
+        && request.resource.data.targetId is string
+        && request.resource.data.targetId != request.auth.uid
+        && id == request.resource.data.followerId + '_' + request.resource.data.targetId
+        && request.resource.data.createdAt == request.time
+        && getAfter(userPath(request.resource.data.targetId)).data.followersCount
+             == get(userPath(request.resource.data.targetId)).data.followersCount + 1;
+
+      allow delete: if signedIn()
+        && resource.data.followerId == request.auth.uid
+        && getAfter(userPath(resource.data.targetId)).data.followersCount
+             == get(userPath(resource.data.targetId)).data.followersCount - 1;
+
+      allow update: if false;
+    }
+
+    // ───────── Avis ─────────
+    match /reviews/{id} {
+      allow read: if true;
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['targetId', 'reviewerId', 'rating', 'comment', 'createdAt', 'updatedAt'])
+        && request.resource.data.reviewerId == request.auth.uid
+        && request.resource.data.targetId is string
+        && request.resource.data.targetId != request.auth.uid
+        && id == request.resource.data.targetId + '_' + request.resource.data.reviewerId
+        && validRating(request.resource.data.rating)
+        && request.resource.data.comment is string
+        && request.resource.data.comment.size() <= 500
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && getAfter(userPath(request.resource.data.targetId)).data.ratingCount
+             == get(userPath(request.resource.data.targetId)).data.ratingCount + 1
+        && getAfter(userPath(request.resource.data.targetId)).data.ratingSum
+             == get(userPath(request.resource.data.targetId)).data.ratingSum + request.resource.data.rating;
+
+      allow update: if signedIn()
+        && resource.data.reviewerId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'comment', 'updatedAt'])
+        && validRating(request.resource.data.rating)
+        && request.resource.data.comment is string
+        && request.resource.data.comment.size() <= 500
+        && request.resource.data.updatedAt == request.time
+        && getAfter(userPath(resource.data.targetId)).data.ratingCount
+             == get(userPath(resource.data.targetId)).data.ratingCount
+        && getAfter(userPath(resource.data.targetId)).data.ratingSum
+             == get(userPath(resource.data.targetId)).data.ratingSum - resource.data.rating + request.resource.data.rating;
+
+      allow delete: if signedIn()
+        && resource.data.reviewerId == request.auth.uid
+        && getAfter(userPath(resource.data.targetId)).data.ratingCount
+             == get(userPath(resource.data.targetId)).data.ratingCount - 1
+        && getAfter(userPath(resource.data.targetId)).data.ratingSum
+             == get(userPath(resource.data.targetId)).data.ratingSum - resource.data.rating;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
