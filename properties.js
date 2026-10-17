@@ -8,13 +8,31 @@ const okUrl = (u) => typeof u === 'string' && CLOUDINARY.test(u);
 
 export function normalizeProperty(p) {
   const media = [];
-  (Array.isArray(p.images) ? p.images : []).forEach((i) => { if (i && okUrl(i.url)) media.push({ url: i.url, publicId: i.publicId || '', type: 'image' }); });
+  (Array.isArray(p.images) ? p.images : []).forEach((i) => { if (i && okUrl(i.url)) media.push({ url: i.url, publicId: i.publicId || '', type: 'image', w: Number(i.w) || 0, h: Number(i.h) || 0 }); });
   if (p.video && okUrl(p.video.url)) media.push({ url: p.video.url, publicId: p.video.publicId || '', type: 'video' });
   if (!p.images && !p.video && Array.isArray(p.media)) {
     p.media.forEach((m) => { if (m && okUrl(m.url)) media.push({ url: m.url, publicId: m.publicId || '', type: m.type === 'video' ? 'video' : 'image' }); });
   }
   return { ...p, media };
 }
+
+// Lecture « serveur d'abord » : si le réseau est lent ou absent, Firebase renvoie sinon silencieusement ce que le
+// téléphone a en mémoire (c'est-à-dire surtout VOS propres annonces). Ici on essaie le serveur, et seulement en cas
+// d'échec on utilise la mémoire, en le signalant (fromCache) pour que l'écran puisse prévenir l'utilisateur.
+async function runQuery(m, q) {
+  try {
+    return { snap: await m.getDocsFromServer(q), fromCache: false };
+  } catch (e) {
+    try {
+      const snap = await m.getDocsFromCache(q);
+      return { snap, fromCache: true };
+    } catch (e2) {
+      throw e;
+    }
+  }
+}
+
+const mapDocs = (snap) => snap.docs.map((d) => normalizeProperty({ id: d.id, ...d.data() }));
 
 // Lit les annonces, les plus récentes d'abord, par lots (fil continu)
 export async function fetchProperties({ after = null, size = 8 } = {}) {
@@ -24,12 +42,13 @@ export async function fetchProperties({ after = null, size = 8 } = {}) {
   const parts = [m.collection(db, 'properties'), m.orderBy('createdAt', 'desc')];
   if (after) parts.push(m.startAfter(after));
   parts.push(m.limit(size));
-  const snap = await m.getDocs(m.query(...parts));
+  const { snap, fromCache } = await runQuery(m, m.query(...parts));
   return {
-    items: snap.docs.map((d) => normalizeProperty({ id: d.id, ...d.data() })),
+    items: mapDocs(snap),
     cursor: snap.docs[snap.docs.length - 1] || after,
     done: snap.size < size,
-    configured: true
+    configured: true,
+    fromCache
   };
 }
 
@@ -94,11 +113,12 @@ export async function fetchByAuthor(authorId, { after = null, size = 8 } = {}) {
   const parts = [m.collection(db, 'properties'), m.where('authorId', '==', authorId), m.orderBy('createdAt', 'desc')];
   if (after) parts.push(m.startAfter(after));
   parts.push(m.limit(size));
-  const snap = await m.getDocs(m.query(...parts));
+  const { snap, fromCache } = await runQuery(m, m.query(...parts));
   return {
-    items: snap.docs.map((d) => normalizeProperty({ id: d.id, ...d.data() })),
+    items: mapDocs(snap),
     cursor: snap.docs[snap.docs.length - 1] || after,
-    done: snap.size < size
+    done: snap.size < size,
+    fromCache
   };
 }
 
@@ -149,4 +169,35 @@ export async function countByAuthor(authorId) {
   const { m, db } = await need();
   const snap = await m.getCountFromServer(m.query(m.collection(db, 'properties'), m.where('authorId', '==', authorId)));
   return snap.data().count;
+}
+
+// ───────── Pour la recherche et les recommandations
+// Annonces contenant au moins un des mots donnés (jusqu'à 10 mots) ; sans tri : on classe dans le navigateur
+export async function fetchByTokens(tokens, size = 30) {
+  const list = [...new Set(tokens)].slice(0, 10);
+  if (!list.length) return [];
+  const { m, db } = await need();
+  const { snap } = await runQuery(m, m.query(m.collection(db, 'properties'), m.where('tokens', 'array-contains-any', list), m.limit(size)));
+  return mapDocs(snap);
+}
+
+// Dernières annonces de plusieurs auteurs (jusqu'à 10) — utilise l'index « authorId + createdAt »
+export async function fetchFromAuthors(authorIds, size = 20) {
+  const list = [...new Set(authorIds)].slice(0, 10);
+  if (!list.length) return [];
+  const { m, db } = await need();
+  const { snap } = await runQuery(m, m.query(m.collection(db, 'properties'), m.where('authorId', 'in', list), m.orderBy('createdAt', 'desc'), m.limit(size)));
+  return mapDocs(snap);
+}
+
+// Annonces par identifiants (favoris)
+export async function fetchByIds(ids) {
+  const { m, db } = await need();
+  const out = await Promise.all(ids.map(async (id) => {
+    try {
+      const s = await m.getDoc(m.doc(db, 'properties', id));
+      return s.exists() ? normalizeProperty({ id: s.id, ...s.data() }) : null;
+    } catch (e) { return null; }
+  }));
+  return out.filter(Boolean);
 }

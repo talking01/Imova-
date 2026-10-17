@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#0B2545">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="main.css">
+  <link rel="stylesheet" href="components.css">
+  <link rel="stylesheet" href="forms.css">
+  <link rel="stylesheet" href="profile.css">
+  <link rel="stylesheet" href="messages.css">
+  <link rel="stylesheet" href="responsive.css">
+  <script src="theme.js"></script>
+  <title>Conversation — Imova</title>
+</head>
+<body class="chat-page">
+  <div class="chat" id="chat">
+    <header class="chat-head glass" id="chatHead"></header>
+    <div class="chat-net" id="netBar" role="status" hidden>Hors connexion : vos messages seront envoyés dès le retour du réseau.</div>
+    <div class="ctx-bar" id="ctxBar" hidden></div>
+    <main class="chat-scroll" id="scroll" tabindex="-1" aria-label="Messages"><div class="spacer"></div><div id="older" class="older-note" hidden></div><div id="msgs" style="display:contents"></div><div id="uploads" style="display:contents"></div></main>
+    <button class="jump" id="jump" type="button" hidden><span id="jumpLabel">Nouveaux messages</span><span class="n" id="jumpN" hidden></span></button>
+    <footer class="composer" id="composer"></footer>
+  </div>
+  <div id="overlay-root"></div>
+  <div id="toast-root" aria-live="polite"></div>
+  <script type="module" src="chat.js"></script>
+</body>
+</html>

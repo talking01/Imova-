@@ -273,6 +273,7 @@ async function publish() {
       const res = isVideo ? await uploadVideo(item.file, { onProgress }) : await uploadImage(item.file, { maxSide: 1600, onProgress });
       item.url = res.url;
       item.publicId = res.publicId;
+      if (!isVideo) { item.w = res.width; item.h = res.height; }
       delete item.file;
       done++;
     }
@@ -282,7 +283,7 @@ async function publish() {
     const description = clean(state.description, DESC_MAX);
     const payload = {
       title, description,
-      images: state.images.map((i) => ({ url: i.url, publicId: i.publicId || '' })),
+      images: state.images.map((i) => ({ url: i.url, publicId: i.publicId || '', ...(i.w && i.h ? { w: i.w, h: i.h } : {}) })),
       video: state.video ? { url: state.video.url, publicId: state.video.publicId || '' } : null,
       tokens: buildTokens(title, description)
     };
@@ -328,7 +329,7 @@ async function run() {
       state.id = p.id;
       state.title = p.title || '';
       state.description = p.description || '';
-      p.media.filter((m) => m.type !== 'video').forEach((m) => state.images.push({ key: ++seq, url: m.url, publicId: m.publicId, preview: m.url }));
+      p.media.filter((m) => m.type !== 'video').forEach((m) => state.images.push({ key: ++seq, url: m.url, publicId: m.publicId, w: m.w, h: m.h, preview: m.url }));
       const v = p.media.find((m) => m.type === 'video');
       if (v) state.video = { key: ++seq, url: v.url, publicId: v.publicId, preview: v.url };
     } catch (e) {

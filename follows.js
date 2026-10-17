@@ -2,6 +2,7 @@
 // Le document d'abonnement et le compteur d'abonnés sont écrits ENSEMBLE (lot atomique) :
 // les règles Firestore refusent l'un sans l'autre, donc le compteur ne peut pas être falsifié.
 import { firestore } from './firebase.js';
+import { track } from './interests.js';
 
 async function need() {
   const fs = await firestore();
@@ -21,6 +22,8 @@ export async function follow(me, target) {
   batch.set(m.doc(db, 'follows', `${me}_${target}`), { followerId: me, targetId: target, createdAt: m.serverTimestamp() });
   batch.update(m.doc(db, 'users', target), { followersCount: m.increment(1) });
   await batch.commit();
+  track('follow', { authorId: target });
+  if (followingCache && followingCache.uid === me) followingCache.list.push(target);
 }
 
 export async function unfollow(me, target) {
@@ -29,6 +32,7 @@ export async function unfollow(me, target) {
   batch.delete(m.doc(db, 'follows', `${me}_${target}`));
   batch.update(m.doc(db, 'users', target), { followersCount: m.increment(-1) });
   await batch.commit();
+  if (followingCache && followingCache.uid === me) followingCache.list = followingCache.list.filter((i) => i !== target);
 }
 
 // Abonnés d'un profil, par lots (sans index particulier)
@@ -43,4 +47,15 @@ export async function listFollowers(targetId, { after = null, size = 20 } = {}) 
     cursor: snap.docs[snap.docs.length - 1] || after,
     done: snap.size < size
   };
+}
+
+// Profils que je suis (identifiants), mis en mémoire pendant la session
+let followingCache = null;
+export async function listFollowing(me) {
+  if (followingCache && followingCache.uid === me) return followingCache.list;
+  const { m, db } = await need();
+  const snap = await m.getDocs(m.query(m.collection(db, 'follows'), m.where('followerId', '==', me), m.limit(200)));
+  const list = snap.docs.map((d) => d.data().targetId);
+  followingCache = { uid: me, list };
+  return list;
 }

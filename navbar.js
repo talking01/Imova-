@@ -36,6 +36,8 @@ export function renderNavbar() {
     </header>`;
 
   guardLinks(host);
+  // pastille de messages non lus (écoute en direct, chargée à part)
+  import('./badges.js').then((b) => b.initBadges()).catch(() => {});
   const pill = host.querySelector('#searchPill');
   if (pill && isReady('search.html')) {
     // Le champ glisse vers le haut avant d'ouvrir la recherche

@@ -97,3 +97,38 @@ export function showFlash() {
     if (m) { sessionStorage.removeItem('imova-flash'); toast(m); }
   } catch (e) { /* ignoré */ }
 }
+
+// ───────── Dates et heures pour la messagerie
+const pad = (n) => String(n).padStart(2, '0');
+export const clock = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+
+// Séparateur de jour dans une conversation : Aujourd'hui, Hier, ou « lundi 12 octobre »
+export function dayLabel(date) {
+  const diff = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86400000);
+  if (diff === 0) return "Aujourd'hui";
+  if (diff === 1) return 'Hier';
+  const opts = { weekday: 'long', day: 'numeric', month: 'long' };
+  if (date.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return date.toLocaleDateString('fr-FR', opts);
+}
+
+// Heure dans la liste des conversations : 14:32, Hier, lun., 12/10/2026
+export function listTime(date) {
+  const diff = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86400000);
+  if (diff === 0) return clock(date);
+  if (diff === 1) return 'Hier';
+  if (diff < 7) return date.toLocaleDateString('fr-FR', { weekday: 'short' });
+  return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+
+// « vu aujourd'hui à 14:32 », « vu hier à 09:10 », « vu le 12 octobre »
+export function lastSeenLabel(date) {
+  const diff = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86400000);
+  if (diff === 0) return `vu aujourd'hui à ${clock(date)}`;
+  if (diff === 1) return `vu hier à ${clock(date)}`;
+  return `vu le ${date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`;
+}
+
+// Secondes → « 1:05 »
+export const mmss = (s) => `${Math.floor(s / 60)}:${pad(Math.round(s % 60))}`;

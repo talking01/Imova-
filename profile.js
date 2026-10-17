@@ -17,6 +17,9 @@ import { esc, clean, toast, compact, param, explainError, showFlash } from './ut
 import { isEmail } from './validation.js';
 import { pageHeader, bindBack, emptyState, skeletonCard, stars, average, formatAverage } from './components.js';
 import { setActiveTab } from './navbar.js';
+import { track } from './interests.js';
+import { openReport } from './reports.js';
+import { blockUser, unblockUser, getBlockedIds } from './messaging.js';
 
 const main = document.getElementById('main');
 const TYPES = { particulier: 'Particulier', agence: 'Agence' };
@@ -304,13 +307,27 @@ async function refreshUser() {
   } catch (e) { /* on garde l'affichage actuel */ }
 }
 
+function openChat() {
+  if (!requireAuth('écrire à ce profil')) return;
+  location.href = `chat.html?with=${encodeURIComponent(state.id)}`;
+}
+
+function askBlock() {
+  if (!requireAuth('bloquer ce profil')) return;
+  openModal({
+    title: `Bloquer ${state.u.name || 'ce profil'} ?`,
+    html: '<p class="muted">Cette personne ne pourra plus vous envoyer de messages. Vous pourrez la débloquer depuis vos messages (Réglages → Contacts bloqués).</p>',
+    actions: [{ label: 'Annuler' }, { label: 'Bloquer', danger: true, onClick: async () => { try { await blockUser(state.me.uid, state.id); toast('Contact bloqué'); } catch (e) { toast(explainError(e)); return false; } } }]
+  });
+}
+
 function showMenu() {
   const url = profileUrl(state.id);
   const items = [];
   if (!state.own) {
-    items.push({ icon: 'message', label: 'Message', onClick: () => { if (requireAuth('écrire à ce profil')) toast('Cette fonction arrive bientôt.'); } });
-    items.push({ icon: 'flag', label: 'Signaler le profil', danger: true, onClick: () => { if (requireAuth('signaler ce profil')) toast('Cette fonction arrive bientôt.'); } });
-    items.push({ icon: 'close', label: 'Bloquer', danger: true, onClick: () => { if (requireAuth('bloquer ce profil')) toast('Cette fonction arrive bientôt.'); } });
+    items.push({ icon: 'message', label: 'Message', onClick: openChat });
+    items.push({ icon: 'flag', label: 'Signaler le profil', danger: true, onClick: () => openReport({ targetType: 'profile', targetId: state.id, targetUserId: state.id }) });
+    items.push({ icon: 'ban', label: 'Bloquer', danger: true, onClick: askBlock });
   }
   items.push({ icon: 'link', label: 'Copier le lien', onClick: () => copyLink(url) });
   items.push({ icon: 'share', label: 'Partager', onClick: () => shareLink(state.u.name || 'Profil Imova', url) });
@@ -324,7 +341,7 @@ main.addEventListener('click', (e) => {
   if (!btn) return;
   switch (btn.dataset.act) {
     case 'follow': toggleFollow(btn); break;
-    case 'message': if (requireAuth('écrire à ce profil')) toast('Cette fonction arrive bientôt.'); break;
+    case 'message': openChat(); break;
     case 'rate':
       if (requireAuth('noter ce profil')) openRatingModal({ targetId: state.id, reviewerId: state.me.uid, onDone: refreshUser });
       break;
@@ -391,6 +408,7 @@ async function run() {
   if (me && !state.own) {
     try { state.following = await isFollowing(me.uid, id); } catch (e) { state.following = false; }
   }
+  if (!state.own) track('profile', { authorId: id });
   document.getElementById('moreBtn').addEventListener('click', showMenu);
   main.innerHTML = '<div id="top" class="profile"></div><div id="tabContent"></div>';
   renderTop();

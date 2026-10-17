@@ -21,6 +21,10 @@
       <div class="notice" id="setupNotice" hidden>
         Firebase n'est pas encore configuré. Ouvrez <code>firebase-config.js</code> et remplacez les valeurs « VOTRE_... » par celles de votre projet.
       </div>
+      <div class="notice" id="cacheNotice" hidden>
+        Connexion lente ou absente : les annonces affichées viennent de la mémoire de votre téléphone et peuvent être incomplètes (par exemple sans celles des autres utilisateurs).
+        <button class="link-btn" id="cacheRetry" type="button">Réessayer</button>
+      </div>
       <section class="feed" id="feed" aria-label="Annonces"></section>
       <div id="feedEnd" style="min-height:1px"></div>
     </main>

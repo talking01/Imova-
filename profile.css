@@ -66,3 +66,6 @@
 .review.mine { background: var(--gold-soft); color: #2d2208; }
 .review.mine small { color: #6b5320; }
 .more-wrap { display: grid; padding: 12px 0; }
+
+/* Correctif : les blocs du profil restent dans la largeur de l'écran */
+.profile { grid-template-columns: minmax(0, 1fr); }

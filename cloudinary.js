@@ -56,7 +56,7 @@ export function uploadToCloudinary(blob, { resource = 'image', onProgress = null
     xhr.onload = () => {
       let json = {};
       try { json = JSON.parse(xhr.responseText); } catch (e) { /* réponse illisible */ }
-      if (xhr.status >= 200 && xhr.status < 300 && json.secure_url) resolve({ url: json.secure_url, publicId: json.public_id });
+      if (xhr.status >= 200 && xhr.status < 300 && json.secure_url) resolve({ url: json.secure_url, publicId: json.public_id, width: json.width || 0, height: json.height || 0 });
       else reject(new Error((json.error && json.error.message) || 'upload-failed'));
     };
     xhr.onerror = () => reject(new Error('network'));
@@ -71,4 +71,9 @@ export async function uploadImage(file, { maxSide = 1600, onProgress = null } = 
 
 export function uploadVideo(file, { onProgress = null } = {}) {
   return uploadToCloudinary(file, { resource: 'video', onProgress });
+}
+
+// Message vocal : Cloudinary range l'audio dans le type « video »
+export function uploadAudio(blob, { onProgress = null } = {}) {
+  return uploadToCloudinary(blob, { resource: 'video', onProgress });
 }

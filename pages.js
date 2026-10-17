@@ -3,7 +3,7 @@
 // les liens qui y mènent affichent un message au lieu d'ouvrir une page inexistante.
 import { toast } from './utils.js';
 
-export const READY = ['index.html', '404.html', 'menu.html', 'property.html', 'login.html', 'register.html', 'reset.html', 'profile.html', 'followers.html', 'reviews.html', 'publish.html'];
+export const READY = ['index.html', '404.html', 'menu.html', 'property.html', 'login.html', 'register.html', 'reset.html', 'profile.html', 'followers.html', 'reviews.html', 'publish.html', 'search.html', 'favorites.html', 'agencies.html', 'messages.html', 'chat.html', 'help.html'];
 
 export const isReady = (href) => READY.includes(String(href).split('?')[0].split('#')[0]);
 
