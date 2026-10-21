@@ -81,7 +81,7 @@ export function overlayRoot() {
 // Explique une erreur Firebase en français, pour afficher une bulle claire
 export function explainError(e) {
   const code = (e && e.code) || '';
-  if (code === 'permission-denied') return "Permission refusée : publiez les règles Firestore de cette étape (firestore.rules).";
+  if (code === 'permission-denied') return "Permission refusée : les règles Firestore ne sont pas à jour (firestore.rules), ou votre compte est suspendu, ou l'action est fermée par l'administration.";
   if (code === 'unavailable' || code === 'auth/network-request-failed') return 'Pas de connexion Internet.';
   if (code === 'failed-precondition') return "Un index Firestore est nécessaire (voir GUIDE-FIREBASE.md, étape « Index »).";
   return 'Action impossible pour le moment. Réessayez dans un instant.';
