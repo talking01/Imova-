@@ -8,6 +8,9 @@ import { listAccounts } from './accounts.js';
 import { activeSlot, isConfigured } from './firebase.js';
 import { openModal } from './modal.js';
 import { optimized } from './viewer.js';
+import { firestore } from './firebase.js';
+import { getUserDoc } from './users.js';
+import { getMyRequest } from './verification.js';
 
 const TYPES = { particulier: 'Particulier', agence: 'Agence' };
 
@@ -100,6 +103,27 @@ function renderAccounts(user) {
   });
 }
 
+// Après affichage : état du badge (Vérifié / En attente) et ligne « Administration » pour l'équipe
+async function enrich(user) {
+  if (!user) return;
+  try {
+    const [u, req] = await Promise.all([getUserDoc(user.uid), getMyRequest(user.uid).catch(() => null)]);
+    const row = document.querySelector('#menuList a[href="badge.html"] .row-label');
+    if (row) {
+      const tag = u && u.verified ? ['Vérifié', 'ok'] : req && req.status === 'pending' ? ['En attente', 'warn'] : null;
+      if (tag) row.insertAdjacentHTML('beforeend', ` <span class="pill ${tag[1]}">${tag[0]}</span>`);
+    }
+  } catch (e) { /* facultatif */ }
+  try {
+    const fs = await firestore();
+    const s = await fs.m.getDoc(fs.m.doc(fs.db, 'admins', user.uid));
+    if (s.exists() && !document.getElementById('adminRow')) {
+      document.getElementById('menuList').insertAdjacentHTML('afterbegin', `<a class="row" id="adminRow" href="admin.html">${icon('shield')}<span class="row-label">Administration</span>${icon('chevron', 18)}</a>`);
+      hydrateIcons(document.getElementById('menuList'));
+    }
+  } catch (e) { /* pas membre de l'équipe */ }
+}
+
 async function run() {
   document.getElementById('pageHeader').innerHTML = pageHeader('Menu');
   bindBack();
@@ -110,6 +134,7 @@ async function run() {
   renderList(user || getUser());
   renderAccounts(user || getUser());
   hydrateIcons();
+  enrich(user || getUser());
 }
 
 run();

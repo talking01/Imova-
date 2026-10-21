@@ -32,7 +32,8 @@ async function runQuery(m, q) {
   }
 }
 
-const mapDocs = (snap) => snap.docs.map((d) => normalizeProperty({ id: d.id, ...d.data() }));
+// Les annonces masquées par la modération sont retirées, sauf si on les demande explicitement (auteur, équipe)
+const mapDocs = (snap, includeHidden = false) => snap.docs.map((d) => normalizeProperty({ id: d.id, ...d.data() })).filter((p) => includeHidden || p.status !== 'hidden');
 
 // Lit les annonces, les plus récentes d'abord, par lots (fil continu)
 export async function fetchProperties({ after = null, size = 8 } = {}) {
@@ -52,12 +53,14 @@ export async function fetchProperties({ after = null, size = 8 } = {}) {
   };
 }
 
-export async function getProperty(id) {
+export async function getProperty(id, { includeHidden = false } = {}) {
   const fs = await firestore();
   if (!fs) return null;
   const { m, db } = fs;
   const snap = await m.getDoc(m.doc(db, 'properties', id));
-  return snap.exists() ? normalizeProperty({ id: snap.id, ...snap.data() }) : null;
+  if (!snap.exists()) return null;
+  const p = normalizeProperty({ id: snap.id, ...snap.data() });
+  return !includeHidden && p.status === 'hidden' ? null : p;
 }
 
 // Auteurs : on lit users/{id} une seule fois par auteur (mémoire de la page + 10 min en session)
@@ -95,18 +98,18 @@ export async function loadAuthors(ids) {
 }
 
 // Publications épinglées d'un auteur (filtre simple, aucun index nécessaire)
-export async function fetchPinned(authorId) {
+export async function fetchPinned(authorId, { includeHidden = false } = {}) {
   const fs = await firestore();
   if (!fs) return [];
   const { m, db } = fs;
   const snap = await m.getDocs(m.query(
     m.collection(db, 'properties'), m.where('authorId', '==', authorId), m.where('pinned', '==', true), m.limit(10)
   ));
-  return snap.docs.map((d) => normalizeProperty({ id: d.id, ...d.data() }));
+  return snap.docs.map((d) => normalizeProperty({ id: d.id, ...d.data() })).filter((p) => includeHidden || p.status !== 'hidden');
 }
 
 // Publications d'un auteur, les plus récentes d'abord (demande l'index « authorId + createdAt », voir GUIDE-FIREBASE.md)
-export async function fetchByAuthor(authorId, { after = null, size = 8 } = {}) {
+export async function fetchByAuthor(authorId, { after = null, size = 8, includeHidden = false } = {}) {
   const fs = await firestore();
   if (!fs) return { items: [], cursor: null, done: true };
   const { m, db } = fs;
@@ -115,7 +118,7 @@ export async function fetchByAuthor(authorId, { after = null, size = 8 } = {}) {
   parts.push(m.limit(size));
   const { snap, fromCache } = await runQuery(m, m.query(...parts));
   return {
-    items: mapDocs(snap),
+    items: mapDocs(snap, includeHidden),
     cursor: snap.docs[snap.docs.length - 1] || after,
     done: snap.size < size,
     fromCache
@@ -196,7 +199,7 @@ export async function fetchByIds(ids) {
   const out = await Promise.all(ids.map(async (id) => {
     try {
       const s = await m.getDoc(m.doc(db, 'properties', id));
-      return s.exists() ? normalizeProperty({ id: s.id, ...s.data() }) : null;
+      return s.exists() && s.data().status !== 'hidden' ? normalizeProperty({ id: s.id, ...s.data() }) : null;
     } catch (e) { return null; }
   }));
   return out.filter(Boolean);

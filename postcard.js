@@ -45,7 +45,7 @@ export function createPostCard(property, author = {}, opts = {}) {
     ${avatar(author.photoUrl, name)}
     <span class="post-author-text">
       <strong>${esc(name)}${author.verified ? `<span class="verified" title="Profil vérifié">${icon('badge', 16)}</span>` : ''}</strong>
-      <small>${esc(timeAgo(property.createdAt))}${property.pinned ? ` · <span class="pinned-tag">${icon('pushpin', 13)} Épinglée</span>` : ''}</small>
+      <small>${esc(timeAgo(property.createdAt))}${property.pinned ? ` · <span class="pinned-tag">${icon('pushpin', 13)} Épinglée</span>` : ''}${property.status === 'hidden' ? ` · <span class="hidden-tag">Masquée par la modération</span>` : ''}</small>
     </span>`;
 
   // Le cadre prend la forme de la première photo (limitée entre 4:5 portrait et 1,91:1 paysage) ; la photo reste ENTIÈRE

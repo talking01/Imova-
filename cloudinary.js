@@ -77,3 +77,27 @@ export function uploadVideo(file, { onProgress = null } = {}) {
 export function uploadAudio(blob, { onProgress = null } = {}) {
   return uploadToCloudinary(blob, { resource: 'video', onProgress });
 }
+
+// ───────── Documents (messagerie) : PDF, Word, Excel, PowerPoint, texte...
+export const DOC_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'odt', 'ods', 'odp', 'rtf'];
+export const MAX_DOC_MB = 10;
+export const fileExt = (name) => (String(name || '').split('.').pop() || '').toLowerCase();
+
+export function checkDocFile(file) {
+  if (!file) return 'Aucun fichier choisi.';
+  if (!DOC_EXTENSIONS.includes(fileExt(file.name))) return 'Type de fichier non accepté (PDF, Word, Excel, PowerPoint, texte...).';
+  if (file.size === 0) return 'Ce fichier est vide.';
+  if (file.size > MAX_DOC_MB * 1024 * 1024) return `Ce fichier dépasse ${MAX_DOC_MB} Mo.`;
+  return '';
+}
+
+export function uploadDocument(file, { onProgress = null } = {}) {
+  return uploadToCloudinary(file, { resource: 'raw', onProgress });
+}
+
+export function formatSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n >= 1048576) return (n / 1048576).toFixed(1).replace('.0', '').replace('.', ',') + ' Mo';
+  if (n >= 1024) return Math.round(n / 1024) + ' Ko';
+  return n + ' o';
+}

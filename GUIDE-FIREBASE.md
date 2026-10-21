@@ -68,12 +68,18 @@ Sans cela, la connexion échoue avec « unauthorized-domain ».
 À refaire à chaque nouvelle étape : je te fournirai un `firestore.rules` à jour.
 
 ### A8. Créer l'index des publications
-La page profil (onglet Publication) cherche « les annonces d'un auteur, les plus récentes d'abord ». Firestore exige un index pour cela.
+La page profil (onglet Publication) affiche les annonces d'un auteur. Elle cherche « les annonces d'un auteur, les plus récentes d'abord ». Firestore exige un index pour cela.
 1. Firestore Database → onglet **Index** → **Composite** → **Ajouter un index**.
 2. **ID de la collection** : `properties`.
 3. **Champs** : `authorId` en **Croissant**, puis `createdAt` en **Décroissant**.
 4. **Portée de la requête** : **Collection**. → **Créer**.
 5. Attends que l'état passe à **Activé** (quelques minutes).
+
+### A8 bis. Créer l'index des statistiques (tableau de bord)
+Le tableau de bord compte les vues, visites et conversations par période : Firestore demande un index.
+1. Firestore Database → **Index** → **Composite** → **Ajouter un index**.
+2. **ID de la collection** : `events`. **Champs** : `ownerId` Croissant, `type` Croissant, `createdAt` Croissant. **Portée** : Collection → **Créer**.
+3. Attends l'état **Activé**. (Si tu l'oublies, le tableau de bord affiche un message et la console du navigateur donne un lien qui crée l'index en un clic.)
 
 Astuce : si tu oublies, ouvre l'onglet Publication d'un profil : la console du navigateur affiche un lien qui crée l'index en un clic.
 
@@ -89,8 +95,20 @@ Si l'application affiche « API key not valid » ou « referrer blocked », vér
 ### A10. Surveiller l'usage (gratuit mais limité)
 Firestore Database → onglet **Utilisation** (Usage). Plan gratuit Spark : **50 000 lectures, 20 000 écritures et 20 000 suppressions par jour, 1 Go de stockage**. Au-delà, les opérations sont refusées jusqu'au lendemain : consulte cet écran de temps en temps.
 
-### A11. Se donner le rôle d'administrateur (plus tard)
-Quand l'administration arrivera : Authentication → **Utilisateurs** → copie ton **UID** ; Firestore → **Démarrer une collection** `admins` → ID du document = ton UID (un champ quelconque, par exemple `role` = `admin`).
+### A11. Créer le compte administrateur (propriétaire)
+1. Crée un compte Imova pour l'administrateur (inscription normale dans l'application). Tu peux utiliser **ton propre compte**.
+2. Console Firebase → **Authentication → Utilisateurs** : copie la colonne **UID utilisateur** de ce compte.
+3. Firestore Database → **Démarrer une collection** → ID de la collection : `admins`.
+4. **ID du document** : colle l'UID. Un seul champ : `role` (type **string**) = `owner`. **Enregistrer**.
+5. Dans l'application : **Menu → Administration** apparaît pour ce compte.
+
+**Les rôles** (`role`) :
+- `owner` (propriétaire) : tout, plus les réglages de la plateforme et la gestion de l'équipe ;
+- `admin` (administrateur) : signalements, annonces, modération, **vérifications de badge, utilisateurs, agences, statistiques** ;
+- `moderator` (modérateur) : signalements, modération et annonces (masquer, supprimer, avis).
+Ensuite, le propriétaire ajoute ou retire des membres lui-même dans **Administration → Paramètres → Équipe** (il suffit de l'UID du compte).
+
+**Compte « Support Imova »** (aide et demandes de badge) : le plus simple est d'utiliser **le même compte que l'administrateur** : copie son UID dans `app-config.js` (`SUPPORT_UID`). Les demandes arrivent alors dans ses messages, et ses décisions (badge accordé ou refusé) partent depuis ce même compte.
 
 ### A12. Bonnes pratiques
 - Ne passe **jamais** Firestore en mode test, ne publie jamais de clé secrète.
@@ -99,7 +117,7 @@ Quand l'administration arrivera : Authentication → **Utilisateurs** → copie 
 
 ---
 
-## PARTIE B — Cloudinary (photos de profil, bannières, puis annonces)
+## PARTIE B — Cloudinary (photos de profil, bannières, photos et vidéos des annonces)
 
 ### B1. Créer le compte
 1. Va sur **cloudinary.com** → **Sign up for free**. Utilise une adresse e-mail que tu consultes, confirme-la.
@@ -114,7 +132,7 @@ Tableau de bord (Dashboard) ou **Settings → API Keys / Product Environment Cre
 2. **Signing mode** : **Unsigned**.
 3. **Upload preset name** : `imova_unsigned` (ou autre).
 4. **Folder** : `imova`.
-5. Si l'option existe dans ton compte (onglet Upload control / Advanced) : limite les **formats autorisés** à `jpg, png, webp, mp4, webm` et active un nom de fichier unique.
+5. Si l'option existe dans ton compte (onglet Upload control / Advanced) : limite les **formats autorisés** à `jpg, png, webp, mp4, webm, mov, m4a, ogg, mp3, wav` (les messages vocaux sont envoyés en `webm` ou `mp4`) (les **vidéos** doivent être acceptées, sinon la publication d'une annonce avec vidéo échoue) et active un nom de fichier unique. **Pour les documents (PDF, Word...) activez aussi « Use filename »** (utiliser le nom du fichier), afin que le document garde son nom et son extension ; autorisez les formats `pdf, doc, docx, xls, xlsx, ppt, pptx, txt, csv, odt, ods, odp, rtf`.
 6. **Save**.
 
 ### B4. Remplir la configuration
@@ -149,3 +167,12 @@ Sur ton profil, touche l'icône appareil photo : après l'envoi, l'image appara�
 | Bandeau « Firebase n'est pas encore configuré » | Une valeur « VOTRE_... » reste dans `firebase-config.js` | A2 |
 | « Cloudinary n'est pas encore configuré » | B4 non fait | B4 |
 | L'envoi d'image échoue | Preset non « Unsigned », ou nom différent | B3, B4 |
+
+
+---
+
+## PARTIE E — Le compte « Support Imova » (Aide et assistance)
+1. Crée un compte Imova pour le support (type **Agence**, nom « Support Imova »).
+2. Console Firebase → **Authentication → Utilisateurs** : copie la colonne **UID utilisateur** de ce compte.
+3. Dans GitHub, ouvre `app-config.js`, remplace `VOTRE_UID_SUPPORT` par cet UID → **Commit**.
+4. Les demandes envoyées depuis **Menu → Aide et assistance** arrivent dans les **messages** de ce compte. Connecte-toi avec lui pour répondre.

@@ -19,6 +19,7 @@ import { pageHeader, bindBack, emptyState, skeletonCard, stars, average, formatA
 import { setActiveTab } from './navbar.js';
 import { track } from './interests.js';
 import { openReport } from './reports.js';
+import { recordProfileVisit } from './stats.js';
 import { blockUser, unblockUser, getBlockedIds } from './messaging.js';
 
 const main = document.getElementById('main');
@@ -201,8 +202,8 @@ async function renderPosts() {
     feed.appendChild(holder);
     try {
       let pinned = [];
-      if (first) pinned = await fetchPinned(state.id);
-      const res = await fetchByAuthor(state.id, { after: cursor });
+      if (first) pinned = await fetchPinned(state.id, { includeHidden: state.own });
+      const res = await fetchByAuthor(state.id, { after: cursor, includeHidden: state.own });
       holder.remove();
       if (first && pinned.length) {
         feed.insertAdjacentHTML('beforeend', '<h3 class="section-title">Publications épinglées</h3>');
@@ -408,7 +409,7 @@ async function run() {
   if (me && !state.own) {
     try { state.following = await isFollowing(me.uid, id); } catch (e) { state.following = false; }
   }
-  if (!state.own) track('profile', { authorId: id });
+  if (!state.own) { track('profile', { authorId: id }); if (me) recordProfileVisit(me.uid, id); }
   document.getElementById('moreBtn').addEventListener('click', showMenu);
   main.innerHTML = '<div id="top" class="profile"></div><div id="tabContent"></div>';
   renderTop();

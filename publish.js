@@ -14,6 +14,7 @@ import { optimized } from './viewer.js';
 import { setFieldError, setFormError } from './validation.js';
 import { esc, clean, toast, param, explainError, overlayRoot, flash } from './utils.js';
 import { isConfigured } from './firebase.js';
+import { getSettings } from './verification.js';
 
 const MAX_IMAGES = 15;
 const TITLE_MAX = 100;
@@ -317,6 +318,12 @@ async function run() {
   const me = await whenReady();
   if (!me) { location.replace(loginUrl()); return; }
   state.me = me;
+  const settings = await getSettings();
+  if (settings.publishingEnabled === false) {
+    main.innerHTML = emptyState({ iconName: 'lock', title: 'Publications momentanément fermées', text: 'Les nouvelles annonces sont désactivées pour le moment. Réessayez plus tard.', actionLabel: "Retour à l'accueil", actionHref: 'index.html' });
+    hydrateIcons();
+    return;
+  }
   try { state.author = (await getUserDoc(me.uid)) || {}; } catch (e) { state.author = {}; }
 
   const editId = param('edit');

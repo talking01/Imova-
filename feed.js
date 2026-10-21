@@ -10,9 +10,10 @@ import { requireAuth } from './guards.js';
 import { createPostCard } from './postcard.js';
 import { skeletonCard, emptyState } from './components.js';
 import { isConfigured } from './firebase.js';
-import { hydrateIcons } from './icons.js';
+import { hydrateIcons, icon } from './icons.js';
 import { esc, toast, explainError } from './utils.js';
 import { optimized } from './viewer.js';
+import { getSettings } from './verification.js';
 
 const feed = document.getElementById('feed');
 const end = document.getElementById('feedEnd');
@@ -132,6 +133,20 @@ async function start() {
 }
 
 document.getElementById('cacheRetry').addEventListener('click', start);
+
+// Bandeau d'annonce défini par l'administration (réglages de la plateforme)
+if (isConfigured) {
+  getSettings().then((s) => {
+    const a = s && s.announcement;
+    if (!a || !a.enabled || !a.text) return;
+    const key = 'imova-ann-' + a.text.length + a.text.slice(0, 12);
+    try { if (sessionStorage.getItem(key)) return; } catch (e) { /* ignoré */ }
+    const el = document.getElementById('announce');
+    el.innerHTML = `${icon('info', 18)}<span>${esc(a.text)}</span><button type="button" aria-label="Fermer">${icon('close', 16)}</button>`;
+    el.hidden = false;
+    el.querySelector('button').onclick = () => { el.hidden = true; try { sessionStorage.setItem(key, '1'); } catch (e) { /* ignoré */ } };
+  }).catch(() => {});
+}
 
 if (!isConfigured) {
   notice.hidden = false;

@@ -115,3 +115,11 @@ body.chat-page { height: 100dvh; overflow: hidden; }
 .bubble-more { display: none; position: absolute; top: 2px; right: 4px; width: 24px; height: 24px; border-radius: 50%; align-items: center; justify-content: center; background: rgba(0, 0, 0, .15); color: inherit; }
 @media (hover: hover) { .bubble:hover .bubble-more { display: flex; } }
 .msg.mine .bubble.gone { background: transparent; color: var(--text-muted); border: 1px dashed var(--border); }
+
+.file-card { display: flex; align-items: center; gap: 12px; min-width: 230px; padding: 4px 2px; text-decoration: none !important; color: inherit; }
+.file-ic { position: relative; flex: none; width: 46px; height: 56px; border-radius: 10px; background: rgba(127, 127, 127, .2); display: flex; align-items: center; justify-content: center; }
+.file-ic small { position: absolute; bottom: 3px; font-size: .6rem; font-weight: 800; letter-spacing: .03em; }
+.file-text { flex: 1; min-width: 0; display: grid; }
+.file-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .92rem; }
+.file-text small { opacity: .75; font-size: .75rem; }
+.file-dl { flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: #2d2208; display: flex; align-items: center; justify-content: center; }

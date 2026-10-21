@@ -14,6 +14,7 @@ bindBack();
 
 const FAQ = [
   ['Comment publier une annonce ?', "Ouvrez votre profil, touchez « Publier une annonce », saisissez un titre et une description, ajoutez jusqu'à 15 photos et/ou une vidéo, vérifiez l'aperçu, puis touchez « Publier »."],
+  ['Comment obtenir le badge de vérification ?', "Ouvrez Menu → Vérification, remplissez le formulaire et envoyez : votre demande rejoint la liste d'attente et le support vous répond dans la messagerie."],
   ['Comment contacter un annonceur ?', "Touchez « Discuter » sur une annonce, ou « Message » sur un profil. Un message de départ est proposé : vous pouvez le modifier avant de l'envoyer."],
   ['Comment modifier ou supprimer mon annonce ?', "Touchez les trois points de votre annonce : Modifier l'annonce, Épingler sur mon profil ou Supprimer l'annonce."],
   ['Comment fonctionnent les recommandations ?', "Imova retient, sur votre téléphone uniquement, les annonces que vous ouvrez, aimez ou enregistrez, et vous propose en premier celles qui y ressemblent. Une raison est affichée sous chaque annonce recommandée."],

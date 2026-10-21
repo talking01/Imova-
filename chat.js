@@ -9,7 +9,7 @@ import {
 import { startPresence, isOnline } from './presence.js';
 import { getUserDoc } from './users.js';
 import { getProperty } from './properties.js';
-import { uploadImage, uploadAudio, checkImageFile, cloudinaryReady } from './cloudinary.js';
+import { uploadImage, uploadAudio, uploadDocument, checkImageFile, checkDocFile, cloudinaryReady, formatSize, fileExt, DOC_EXTENSIONS } from './cloudinary.js';
 import { canRecord, startRecorder, voiceHtml, bindVoice, stopAllVoices } from './voice.js';
 import { openSheet, openModal } from './modal.js';
 import { openViewer, optimized } from './viewer.js';
@@ -121,7 +121,9 @@ function buildMessage(m, cont) {
   }
   const meta = `<div class="meta">${m.editedAt ? 'modifié · ' : ''}${clock(new Date(ts(m)))}${mine ? tickHtml(statusOf(m)) : ''}</div>`;
   const ref = m.ref && m.ref.propertyId ? `<a class="ref-card" href="property.html?id=${encodeURIComponent(m.ref.propertyId)}">${m.ref.image ? `<img src="${esc(optimized(m.ref.image, 120))}" alt="">` : ''}<span><small>Annonce</small><strong>${esc(m.ref.title || 'Annonce')}</strong></span></a>` : '';
-  if (m.type === 'image') {
+  if (m.type === 'file') {
+    el.innerHTML = `<div class="bubble">${ref}<a class="file-card" href="${esc(m.mediaUrl)}" target="_blank" rel="noopener noreferrer" aria-label="Ouvrir ${esc(m.fileName || 'le document')}"><span class="file-ic">${icon('file', 26)}<small>${esc(fileExt(m.fileName).toUpperCase().slice(0, 4))}</small></span><span class="file-text"><strong>${esc(m.fileName || 'Document')}</strong><small>${esc(formatSize(m.fileSize))}</small></span><span class="file-dl">${icon('download', 20)}</span></a>${meta}</div>`;
+  } else if (m.type === 'image') {
     el.innerHTML = `<div class="bubble img">${ref}<button class="img-msg" data-view="${esc(m.mediaUrl)}" aria-label="Agrandir la photo"><img src="${esc(optimized(m.mediaUrl, 600))}" alt="Photo envoyée" loading="lazy"></button>${meta}</div>`;
   } else if (m.type === 'audio') {
     el.innerHTML = `<div class="bubble">${ref}${voiceHtml(m.duration)}${meta}</div>`;
@@ -290,9 +292,18 @@ function openHeaderMenu() {
         actions: [{ label: 'Annuler' }, { label: 'Effacer', danger: true, onClick: async () => { try { await clearDiscussion(S.cid, S.me); toast('Discussion effacée'); } catch (e) { toast(explainError(e)); return false; } } }]
       });
     } },
-    { icon: 'flag', label: 'Signaler', danger: true, onClick: () => openReport({ targetType: 'conversation', targetId: S.cid, targetUserId: S.other }) },
+    { icon: 'flag', label: 'Signaler', danger: true, onClick: () => openReport({ targetType: 'conversation', targetId: S.cid, targetUserId: S.other, evidence: evidenceOf() }) },
     { icon: 'ban', label: S.blocked ? 'Débloquer' : 'Bloquer', danger: !S.blocked, onClick: () => toggleBlock() }
   ]);
+}
+
+// Derniers messages visibles, joints à un signalement
+function evidenceOf() {
+  return allMessages().filter((m) => !m.deletedForAll).slice(-10).map((m) => ({
+    from: m.senderId === S.me ? 'Auteur du signalement' : (S.other_user.name || 'Autre personne'),
+    text: m.type === 'text' ? m.text : m.type === 'file' ? `[Document] ${m.fileName || ''}` : m.type === 'image' ? '[Photo]' : '[Message vocal]',
+    at: new Date(ts(m)).toISOString()
+  }));
 }
 
 function toggleBlock() {
@@ -453,10 +464,50 @@ function pickImages() {
   });
 }
 
-async function attach() {
+// Le trombone propose : Photo ou Document (PDF, Word, Excel, PowerPoint, texte...)
+function attach() {
   if (S.blocked) { toast('Débloquez ce contact pour lui écrire.'); return; }
   if (!cloudinaryReady) { toast("Cloudinary n'est pas encore configuré (voir GUIDE-FIREBASE.md)."); return; }
+  openSheet([
+    { icon: 'image', label: 'Photo', onClick: attachPhotos },
+    { icon: 'file', label: 'Document (PDF, Word, Excel...)', onClick: attachDocument }
+  ], 'Joindre');
+}
+
+function pickDocument() {
+  return new Promise((resolve) => {
+    const i = document.createElement('input');
+    i.type = 'file';
+    i.accept = DOC_EXTENSIONS.map((e) => '.' + e).join(',');
+    i.onchange = () => resolve(i.files[0] || null);
+    i.oncancel = () => resolve(null);
+    i.click();
+  });
+}
+
+async function attachDocument() {
+  const f = await pickDocument();
+  if (!f) return;
+  const err = checkDocFile(f);
+  if (err) { toast(err); return; }
+  const up = uploading(`Envoi de ${f.name}…`);
+  try {
+    const res = await uploadDocument(f, { onProgress: up.set });
+    up.remove();
+    await send({ type: 'file', mediaUrl: res.url, fileName: f.name, fileSize: f.size });
+  } catch (e) {
+    up.remove();
+    console.error(e);
+    toast(e && e.code ? explainError(e) : "L'envoi du document a échoué. Vérifiez votre connexion et le preset Cloudinary (formats de documents).");
+  }
+}
+
+async function attachPhotos() {
   const files = (await pickImages()).slice(0, 5);
+  await sendPhotos(files);
+}
+
+async function sendPhotos(files) {
   for (const f of files) {
     const err = checkImageFile(f);
     if (err) { toast(err); continue; }

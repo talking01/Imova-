@@ -16,7 +16,7 @@ const REASONS = [
 const LABELS = { profile: 'ce profil', property: 'cette annonce', conversation: 'cette conversation' };
 
 // targetType : profile | property | conversation ; targetUserId : la personne concernée
-export function openReport({ targetType, targetId, targetUserId = '' }) {
+export function openReport({ targetType, targetId, targetUserId = '', evidence = null }) {
   if (!requireAuth(`signaler ${LABELS[targetType] || 'ce contenu'}`)) return;
   openModal({
     title: `Signaler ${LABELS[targetType] || 'ce contenu'}`,
@@ -28,6 +28,7 @@ export function openReport({ targetType, targetId, targetUserId = '' }) {
         <label for="repDetails">Précisions (facultatif)</label>
         <textarea class="input" id="repDetails" rows="3" maxlength="500" style="padding:10px 14px"></textarea>
       </div>
+      ${evidence && evidence.length ? `<p class="hint" style="margin-top:8px">Les ${evidence.length} derniers messages de la conversation seront joints au signalement pour permettre à l'équipe de l'examiner.</p>` : ''}
       <p class="error" id="repError" hidden></p>`,
     actions: [
       { label: 'Annuler' },
@@ -45,6 +46,7 @@ export function openReport({ targetType, targetId, targetUserId = '' }) {
               details: clean(el.querySelector('#repDetails').value, 500), status: 'open', createdAt: fs.m.serverTimestamp()
             };
             if (targetUserId) data.targetUserId = String(targetUserId).slice(0, 200);
+            if (evidence && evidence.length) data.evidence = evidence.slice(-10).map((x) => ({ from: String(x.from).slice(0, 80), text: String(x.text).slice(0, 300), at: String(x.at || '') }));
             await fs.m.setDoc(fs.m.doc(fs.m.collection(fs.db, 'reports')), data);
             toast('Signalement envoyé. Merci : notre équipe va l\'examiner.');
           } catch (e) {

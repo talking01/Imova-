@@ -2,6 +2,7 @@
 import { getProperty, loadAuthors } from './properties.js';
 import { similarTo } from './recommend.js';
 import { track } from './interests.js';
+import { recordView } from './stats.js';
 import { getLikedSet, getFavoriteIds } from './likes.js';
 import { whenReady } from './auth.js';
 import { createPostCard } from './postcard.js';
@@ -32,6 +33,7 @@ async function run() {
       return;
     }
     track('open', p);
+    if (me) recordView(me.uid, p);
     const states = { liked: new Set(), faved: new Set() };
     let similar = [];
     try { similar = await similarTo(p); } catch (e) { /* facultatif */ }

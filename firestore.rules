@@ -1,6 +1,6 @@
 rules_version = '2';
-// RÈGLES — Phase 3, étape 5 (annonces, J'aime, favoris, profils, abonnements, avis, MESSAGERIE, blocages, signalements).
-// Les règles d'administration (modération des signalements, vérification des profils) arrivent à l'étape suivante.
+// RÈGLES — Phase 3, étape 6 (annonces, J'aime, favoris, profils, abonnements, avis, messagerie, vérifications de badge,
+// statistiques, ADMINISTRATION avec rôles : propriétaire, administrateur, modérateur).
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -43,6 +43,34 @@ service cloud.firestore {
 
     function validRating(r) { return r is int && r >= 1 && r <= 5; }
 
+    // ───────── Administration : rôles (documents admins/UID, créés par le propriétaire ou à la main dans la console)
+    function adminPath(uid) { return /databases/$(database)/documents/admins/$(uid); }
+    function isStaff() { return signedIn() && exists(adminPath(request.auth.uid)); }
+    function staffRole() { return get(adminPath(request.auth.uid)).data.role; }
+    function isAdmin() { return isStaff() && staffRole() in ['owner', 'admin']; }
+    function isOwnerRole() { return isStaff() && staffRole() == 'owner'; }
+    // un compte suspendu ne peut plus publier, écrire, suivre ni noter
+    function notSuspended() { return !get(userPath(request.auth.uid)).data.get('suspended', false); }
+    function settingsPath() { return /databases/$(database)/documents/platformSettings/main; }
+    function publishingOpen() { return !exists(settingsPath()) || get(settingsPath()).data.get('publishingEnabled', true); }
+    function verificationOpen() { return !exists(settingsPath()) || get(settingsPath()).data.get('verificationOpen', true); }
+    // jour (UTC) au format AAAAMMJJ, pour les événements de statistiques (un par visiteur, élément et jour)
+    function pad2(n) { return n < 10 ? '0' + string(n) : string(n); }
+    function dayString(t) { return string(t.year()) + pad2(t.month()) + pad2(t.day()); }
+    function eventPath(eid) { return /databases/$(database)/documents/events/$(eid); }
+    function validVerifData(d) {
+      return d is map
+        && d.keys().hasOnly(['legalName', 'registrationNumber', 'idType', 'address', 'phone', 'website', 'activity', 'notes'])
+        && d.legalName is string && d.legalName.size() >= 2 && d.legalName.size() <= 120
+        && d.get('address', '').size() >= 2 && d.get('address', '').size() <= 200
+        && d.get('phone', '').size() >= 6 && d.get('phone', '').size() <= 30
+        && d.get('activity', '').size() >= 2 && d.get('activity', '').size() <= 400
+        && d.get('registrationNumber', '').size() <= 60
+        && d.get('idType', '').size() <= 40
+        && d.get('website', '').size() <= 200
+        && d.get('notes', '').size() <= 400;
+    }
+
     // Contenu d'une annonce : titre, description, 15 photos maximum, une vidéo maximum (adresse Cloudinary)
     function validContent(d) {
       return d.title is string && d.title.size() >= 1 && d.title.size() <= 100
@@ -63,6 +91,8 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['authorId', 'title', 'description', 'images', 'video', 'likesCount',
              'viewsCount', 'pinned', 'status', 'tokens', 'createdAt', 'updatedAt'])
         && request.resource.data.authorId == request.auth.uid
+        && notSuspended()
+        && publishingOpen()
         && validContent(request.resource.data)
         && request.resource.data.likesCount == 0
         && request.resource.data.viewsCount == 0
@@ -76,6 +106,7 @@ service cloud.firestore {
         && resource.data.authorId == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['title', 'description', 'images', 'video', 'tokens', 'updatedAt', 'pinned'])
+        && notSuspended()
         && validContent(request.resource.data)
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['updatedAt'])
             || request.resource.data.updatedAt == request.time);
@@ -93,7 +124,21 @@ service cloud.firestore {
             && !existsAfter(likePath(id, request.auth.uid)))
         );
 
-      allow delete: if signedIn() && resource.data.authorId == request.auth.uid;
+      // Modération : l'équipe peut masquer / réactiver une annonce (champs status et moderationNote seulement)
+      allow update: if isStaff()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'moderationNote'])
+        && request.resource.data.status in ['active', 'hidden']
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['moderationNote'])
+            || (request.resource.data.moderationNote is string && request.resource.data.moderationNote.size() <= 300));
+
+      // Compteur de vues : +1 seulement avec l'événement « vue » du jour (un par visiteur et par jour)
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewsCount'])
+        && request.resource.data.viewsCount == resource.data.viewsCount + 1
+        && !exists(eventPath('view_' + request.auth.uid + '_' + id + '_' + dayString(request.time)))
+        && existsAfter(eventPath('view_' + request.auth.uid + '_' + id + '_' + dayString(request.time)));
+
+      allow delete: if signedIn() && (resource.data.authorId == request.auth.uid || isStaff());
     }
 
     // Un « J'aime » : visible seulement par celui qui l'a donné
@@ -206,6 +251,17 @@ service cloud.firestore {
                  - get(reviewPath(uid, request.auth.uid)).data.rating)
         );
 
+      // Administration : badge de vérification et suspension
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['verified', 'suspended', 'suspendedReason'])
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['suspendedReason'])
+            || (request.resource.data.suspendedReason is string && request.resource.data.suspendedReason.size() <= 300));
+
+      // Suppression d'un avis par l'équipe : la note disparaît du total
+      allow update: if isStaff()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratingSum', 'ratingCount'])
+        && request.resource.data.ratingCount == resource.data.ratingCount - 1;
+
       allow delete: if false;
     }
 
@@ -214,6 +270,7 @@ service cloud.firestore {
       allow read: if true;
 
       allow create: if signedIn()
+        && notSuspended()
         && request.resource.data.keys().hasOnly(['followerId', 'targetId', 'createdAt'])
         && request.resource.data.followerId == request.auth.uid
         && request.resource.data.targetId is string
@@ -236,6 +293,7 @@ service cloud.firestore {
       allow read: if true;
 
       allow create: if signedIn()
+        && notSuspended()
         && request.resource.data.keys().hasOnly(['targetId', 'reviewerId', 'rating', 'comment', 'createdAt', 'updatedAt'])
         && request.resource.data.reviewerId == request.auth.uid
         && request.resource.data.targetId is string
@@ -269,6 +327,8 @@ service cloud.firestore {
              == get(userPath(resource.data.targetId)).data.ratingCount - 1
         && getAfter(userPath(resource.data.targetId)).data.ratingSum
              == get(userPath(resource.data.targetId)).data.ratingSum - resource.data.rating;
+
+      allow delete: if isStaff();
     }
 
     // ───────── Conversations (deux participants, identifiant = les deux UID triés)
@@ -279,6 +339,7 @@ service cloud.firestore {
       allow list: if signedIn() && request.auth.uid in resource.data.members;
 
       allow create: if signedIn()
+        && notSuspended()
         && request.resource.data.keys().hasOnly(['members', 'lastMessage', 'unread', 'lastRead', 'lastSent', 'pinnedBy',
              'mutedBy', 'hidden', 'clearedAt', 'typing', 'context', 'createdAt', 'updatedAt'])
         && request.resource.data.members is list
@@ -308,15 +369,19 @@ service cloud.firestore {
 
         allow create: if signedIn()
           && request.auth.uid in getAfter(convPath(cid)).data.members
-          && request.resource.data.keys().hasOnly(['senderId', 'type', 'text', 'mediaUrl', 'duration', 'ref', 'createdAt'])
+          && notSuspended()
+          && request.resource.data.keys().hasOnly(['senderId', 'type', 'text', 'mediaUrl', 'duration', 'ref', 'fileName', 'fileSize', 'createdAt'])
           && request.resource.data.senderId == request.auth.uid
-          && request.resource.data.type in ['text', 'image', 'audio']
+          && request.resource.data.type in ['text', 'image', 'audio', 'file']
           && request.resource.data.text is string
           && request.resource.data.text.size() <= 2000
           && (request.resource.data.type == 'text'
               ? request.resource.data.text.size() >= 1
               : (request.resource.data.mediaUrl is string
-                 && request.resource.data.mediaUrl.matches('https://res\\.cloudinary\\.com/.*')))
+                 && request.resource.data.mediaUrl.matches('https://res\\.cloudinary\\.com/.*')
+                 && (request.resource.data.type != 'file'
+                     || (request.resource.data.fileName is string && request.resource.data.fileName.size() <= 200
+                         && request.resource.data.fileSize is number && request.resource.data.fileSize <= 10485760))))
           && request.resource.data.createdAt == request.time
           && !exists(blockPath(otherMember(cid), request.auth.uid))
           && throttleOk(cid);
@@ -365,7 +430,7 @@ service cloud.firestore {
     // ───────── Signalements (écriture seule ; la lecture par l'administration arrive à l'étape suivante)
     match /reports/{id} {
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['reporterId', 'targetType', 'targetId', 'targetUserId', 'reason', 'details', 'status', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['reporterId', 'targetType', 'targetId', 'targetUserId', 'reason', 'details', 'evidence', 'status', 'createdAt'])
         && request.resource.data.reporterId == request.auth.uid
         && request.resource.data.targetType in ['profile', 'property', 'conversation']
         && request.resource.data.targetId is string
@@ -373,9 +438,119 @@ service cloud.firestore {
         && request.resource.data.reason in ['spam', 'arnaque', 'contenu_inapproprie', 'harcelement', 'faux_profil', 'autre']
         && request.resource.data.details is string
         && request.resource.data.details.size() <= 500
+        && request.resource.data.get('evidence', []).size() <= 12
         && request.resource.data.status == 'open'
         && request.resource.data.createdAt == request.time;
-      allow read, update, delete: if false;
+      allow read: if isStaff();
+      allow update: if isStaff()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolution', 'handledBy', 'handledAt'])
+        && request.resource.data.status in ['open', 'reviewing', 'resolved', 'dismissed']
+        && request.resource.data.handledBy == request.auth.uid
+        && request.resource.data.handledAt == request.time
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['resolution'])
+            || (request.resource.data.resolution is string && request.resource.data.resolution.size() <= 500));
+      allow delete: if false;
+    }
+
+    // ───────── Statistiques : événements (vue d'annonce, visite de profil, nouvelle conversation)
+    match /events/{id} {
+      allow get, list: if signedIn() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['type', 'ownerId', 'viewerId', 'refId', 'createdAt'])
+        && request.resource.data.viewerId == request.auth.uid
+        && request.resource.data.ownerId is string
+        && request.resource.data.ownerId != request.auth.uid
+        && request.resource.data.refId is string
+        && request.resource.data.type in ['view', 'profile', 'conversation']
+        && request.resource.data.createdAt == request.time
+        && id == request.resource.data.type + '_' + request.auth.uid + '_' + request.resource.data.refId + '_' + dayString(request.time)
+        && (request.resource.data.type == 'view'
+            ? get(propertyPath(request.resource.data.refId)).data.authorId == request.resource.data.ownerId
+            : (request.resource.data.type == 'profile'
+               ? request.resource.data.refId == request.resource.data.ownerId
+               : getAfter(convPath(request.resource.data.refId)).data.members.hasAll([request.auth.uid, request.resource.data.ownerId])));
+      allow update, delete: if false;
+    }
+
+    // ───────── Demandes de badge de vérification (liste d'attente)
+    match /verificationRequests/{uid} {
+      allow get: if signedIn() && (uid == request.auth.uid || isStaff());
+      allow list: if isStaff();
+      allow create: if signedIn()
+        && uid == request.auth.uid
+        && notSuspended()
+        && verificationOpen()
+        && request.resource.data.keys().hasOnly(['userId', 'accountType', 'data', 'status', 'createdAt', 'updatedAt'])
+        && request.resource.data.userId == uid
+        && request.resource.data.accountType in ['particulier', 'agence']
+        && request.resource.data.status == 'pending'
+        && validVerifData(request.resource.data.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      // nouvelle demande après un refus ou un retrait du badge
+      allow update: if signedIn()
+        && uid == request.auth.uid
+        && resource.data.status in ['rejected', 'revoked']
+        && notSuspended()
+        && verificationOpen()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['data', 'status', 'updatedAt', 'reviewNote', 'reviewedBy', 'reviewedAt'])
+        && request.resource.data.status == 'pending'
+        && validVerifData(request.resource.data.data)
+        && request.resource.data.updatedAt == request.time;
+      // décision de l'administration
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewNote', 'reviewedBy', 'reviewedAt'])
+        && request.resource.data.status in ['approved', 'rejected', 'revoked']
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.reviewedAt == request.time
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['reviewNote'])
+            || (request.resource.data.reviewNote is string && request.resource.data.reviewNote.size() <= 500));
+      allow delete: if signedIn() && uid == request.auth.uid && resource.data.status == 'pending';
+    }
+
+    // ───────── Équipe d'administration : propriétaire, administrateur, modérateur
+    match /admins/{id} {
+      allow get: if signedIn() && (id == request.auth.uid || isStaff());
+      allow list: if isStaff();
+      allow create: if isOwnerRole()
+        && request.resource.data.keys().hasOnly(['role', 'createdAt', 'createdBy'])
+        && request.resource.data.role in ['owner', 'admin', 'moderator']
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isOwnerRole()
+        && id != request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])
+        && request.resource.data.role in ['owner', 'admin', 'moderator'];
+      allow delete: if isOwnerRole() && id != request.auth.uid;
+    }
+
+    // ───────── Réglages de la plateforme (lecture publique, écriture par le propriétaire)
+    match /platformSettings/{id} {
+      allow read: if true;
+      allow write: if isOwnerRole()
+        && id == 'main'
+        && request.resource.data.keys().hasOnly(['announcement', 'publishingEnabled', 'verificationOpen', 'updatedAt', 'updatedBy'])
+        && request.resource.data.publishingEnabled is bool
+        && request.resource.data.verificationOpen is bool
+        && request.resource.data.announcement is map
+        && request.resource.data.announcement.keys().hasOnly(['enabled', 'text'])
+        && request.resource.data.announcement.enabled is bool
+        && request.resource.data.announcement.text is string
+        && request.resource.data.announcement.text.size() <= 200
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid;
+    }
+
+    // ───────── Journal d'activité de l'administration (on peut écrire et lire, jamais modifier)
+    match /auditLog/{id} {
+      allow read: if isAdmin();
+      allow create: if isStaff()
+        && request.resource.data.keys().hasOnly(['actorId', 'action', 'targetType', 'targetId', 'details', 'createdAt'])
+        && request.resource.data.actorId == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.details is string
+        && request.resource.data.details.size() <= 500;
+      allow update, delete: if false;
     }
 
     match /{document=**} {

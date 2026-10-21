@@ -50,6 +50,7 @@ function previewHtml(c, other) {
   const prefix = lm.senderId === me.uid && lm.type === 'text' ? 'Vous : ' : '';
   if (lm.type === 'audio') return `${icon('mic', 15)}<span>Message vocal</span>`;
   if (lm.type === 'image') return `${icon('image', 15)}<span>Photo</span>`;
+  if (lm.type === 'file') return `${icon('file', 15)}<span>${esc(lm.text || 'Document')}</span>`;
   if (lm.type === 'deleted') return `${icon('ban', 15)}<em>Message supprimé</em>`;
   return `<span>${esc(prefix + (lm.text || ''))}</span>`;
 }

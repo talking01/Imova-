@@ -3,6 +3,7 @@
 // Données : conversations/{id} (dernier message, non-lus, épinglé, sourdine...) et conversations/{id}/messages/{id}.
 // Seuls les deux participants peuvent lire ou écrire (règles Firestore).
 import { firestore } from './firebase.js';
+import { utcDay } from './stats.js';
 
 export const convId = (a, b) => [a, b].sort().join('_');
 export const otherOf = (conv, me) => (conv.members || []).find((u) => u !== me);
@@ -83,7 +84,7 @@ function noteNewConversation() {
 
 // ───────── Envoi
 // type : text | image | audio ; ref : { propertyId, title, image } pour la carte d'annonce dans la bulle
-export async function sendMessage({ me, other, type = 'text', text = '', mediaUrl = '', duration = 0, ref = null, context = null, exists }) {
+export async function sendMessage({ me, other, type = 'text', text = '', mediaUrl = '', duration = 0, ref = null, context = null, exists, fileName = '', fileSize = 0 }) {
   if (!canSend()) { const e = new Error('rate'); e.code = 'imova/rate'; throw e; }
   const { m, db } = await need();
   const cid = convId(me, other);
@@ -93,10 +94,11 @@ export async function sendMessage({ me, other, type = 'text', text = '', mediaUr
   if (known === undefined) known = (await m.getDoc(convRef)).exists();
   if (!known && !canStartConversation()) { const e = new Error('rate-day'); e.code = 'imova/rate-day'; throw e; }
 
-  const preview = type === 'text' ? text.slice(0, 120) : type === 'image' ? 'Photo' : 'Message vocal';
+  const preview = type === 'text' ? text.slice(0, 120) : type === 'image' ? 'Photo' : type === 'file' ? (fileName || 'Document').slice(0, 120) : 'Message vocal';
   const msg = { senderId: me, type, text: type === 'text' ? text : '', createdAt: m.serverTimestamp() };
   if (type !== 'text') msg.mediaUrl = mediaUrl;
   if (type === 'audio') msg.duration = Math.max(1, Math.round(duration));
+  if (type === 'file') { msg.fileName = String(fileName).slice(0, 200); msg.fileSize = Math.max(0, Math.round(fileSize)); }
   if (ref) msg.ref = ref;
   const last = { text: preview, type, senderId: me, at: m.serverTimestamp() };
 
@@ -117,6 +119,11 @@ export async function sendMessage({ me, other, type = 'text', text = '', mediaUr
     batch.update(convRef, upd);
   }
   batch.set(msgRef, msg);
+  // nouvelle conversation : statistique « nouvelle conversation » pour le destinataire (tableau de bord)
+  if (!known) {
+    const day = utcDay();
+    batch.set(m.doc(db, 'events', `conversation_${me}_${cid}_${day}`), { type: 'conversation', ownerId: other, viewerId: me, refId: cid, createdAt: m.serverTimestamp() });
+  }
   await batch.commit();
   noteSent();
   if (!known) noteNewConversation();

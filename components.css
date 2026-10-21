@@ -167,3 +167,8 @@ img, video, canvas, svg { max-width: 100%; }
 .card, .post, .media-wrap, .media-strip { min-width: 0; max-width: 100%; }
 .media-strip { width: 100%; }
 .post-title, .post-desc, .post-author-text { min-width: 0; overflow-wrap: anywhere; }
+
+.hidden-tag { color: var(--danger); font-weight: 700; }
+.announce { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; margin-bottom: 12px; border-radius: var(--radius); background: var(--gold-soft); color: #3d2d0a; border: 1px solid var(--gold); font-size: .92rem; }
+.announce .ic { flex: none; margin-top: 1px; }
+.announce button { margin-left: auto; flex: none; opacity: .7; }
