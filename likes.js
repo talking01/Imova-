@@ -3,6 +3,8 @@
 // les règles Firestore refusent l'un sans l'autre : le compteur ne peut pas être falsifié.
 // Favoris : privés (favorites/UID_ID), visibles seulement par leur propriétaire.
 import { firestore } from './firebase.js';
+import { notify } from './notifs.js';
+import { getUser } from './auth.js';
 
 async function need() {
   const fs = await firestore();
@@ -25,7 +27,7 @@ export async function getLikedSet(uid, ids) {
   return new Set(ids.filter((id) => likedCache.get(uid + '_' + id)));
 }
 
-export async function setLike(uid, propertyId, like) {
+export async function setLike(uid, propertyId, like, meta = {}) {
   const { m, db } = await need();
   const batch = m.writeBatch(db);
   const likeRef = m.doc(db, 'properties', propertyId, 'likes', uid);
@@ -34,6 +36,10 @@ export async function setLike(uid, propertyId, like) {
   batch.update(m.doc(db, 'properties', propertyId), { likesCount: m.increment(like ? 1 : -1) });
   await batch.commit();
   likedCache.set(uid + '_' + propertyId, like);
+  if (like && meta.authorId && meta.authorId !== uid) {
+    const who = getUser();
+    notify(meta.authorId, { type: 'like', id: `like_${uid}_${propertyId}`, title: `${(who && who.name) || 'Quelqu\'un'} a aimé votre annonce`, body: meta.title || '', link: `property.html?id=${propertyId}`, refId: propertyId });
+  }
 }
 
 // Mes favoris (identifiants), les plus récents d'abord

@@ -2,6 +2,7 @@
 import { initAdmin, audit, names, nameOf, fmtDateTime, since, pill, statusPill, confirmAction, millis } from './admin.js';
 import { getProperty } from './properties.js';
 import { sendMessage } from './messaging.js';
+import { notify } from './notifs.js';
 import { icon, hydrateIcons } from './icons.js';
 import { esc, toast, explainError } from './utils.js';
 import { emptyState } from './components.js';
@@ -71,6 +72,7 @@ main.addEventListener('click', (e) => {
       const { m, db } = ctx;
       await m.updateDoc(m.doc(db, 'properties', r.targetId), { status: 'hidden', moderationNote: n || '' });
       await audit(ctx, 'property_hide', 'property', r.targetId, n || 'suite à un signalement');
+      if (r.targetUserId) notify(r.targetUserId, { type: 'moderation', id: `moderation_${Date.now()}`, title: 'Votre annonce a été masquée', body: n || 'Suite à un signalement', link: 'profile.html' });
       await setStatus(r, 'resolved', `Annonce masquée${n ? ' : ' + n : ''}`);
       toast('Annonce masquée, signalement résolu'); load();
     }

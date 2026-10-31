@@ -92,7 +92,7 @@ export async function suggestProfiles({ me = null, limit = 8 } = {}) {
     try { const s = await m.getDoc(m.doc(db, 'users', id)); if (s.exists()) byId.set(id, { id, ...s.data() }); } catch (e) { /* ignoré */ }
   }));
   const list = [...byId.values()]
-    .filter((u) => u.id !== (me && me.uid) && !following.has(u.id) && u.name)
+    .filter((u) => u.id !== (me && me.uid) && !following.has(u.id) && u.name && u.discoverable !== false)
     .map((u) => {
       const aff = prof.authors[u.id] || 0;
       const avg = u.ratingCount ? u.ratingSum / u.ratingCount : 0;

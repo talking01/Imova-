@@ -9,6 +9,13 @@ import { openModal } from './modal.js';
 import { loadAuthors } from './properties.js';
 
 export const RANK = { moderator: 1, admin: 2, owner: 3 };
+
+// Le rôle est lu de façon tolérante (majuscules, espaces, guillemets, accents, synonymes) : « Owner », " owner ", « Propriétaire »...
+const ALIASES = { owner: 'owner', proprietaire: 'owner', superadmin: 'owner', super_admin: 'owner', 'super admin': 'owner', admin: 'admin', administrateur: 'admin', administrator: 'admin', moderator: 'moderator', moderateur: 'moderator', mod: 'moderator' };
+export function normalizeRole(raw) {
+  const t = String(raw == null ? '' : raw).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/["'`]/g, '').trim();
+  return ALIASES[t] || '';
+}
 export const ROLE_LABEL = { owner: 'Propriétaire', admin: 'Administrateur', moderator: 'Modérateur' };
 
 // [fichier, titre, icône, rang minimal]
@@ -26,9 +33,9 @@ const NAV = [
 
 const $main = () => document.getElementById('main');
 
-function denied(title, text) {
+function denied(title, text, diag = '') {
   document.getElementById('adminHead').innerHTML = '';
-  $main().innerHTML = `<div class="empty"><div class="empty-ic">${icon('lock', 30)}</div><h2>${esc(title)}</h2><p>${esc(text)}</p><a class="btn btn-primary" href="index.html">Retour à l'application</a></div>`;
+  $main().innerHTML = `<div class="empty"><div class="empty-ic">${icon('lock', 30)}</div><h2>${esc(title)}</h2><p>${esc(text)}</p>${diag ? `<p class="muted" style="font-size:.82rem;max-width:46ch">${diag}</p>` : ''}<a class="btn btn-primary" href="index.html">Retour à l'application</a></div>`;
   hydrateIcons();
 }
 
@@ -39,12 +46,26 @@ export async function initAdmin({ minRank = 1, active = '' } = {}) {
   if (!me) { location.replace(loginUrl()); return null; }
   const fs = await firestore();
   let role = '';
+  let raw = null;
+  let exists = false;
+  let readError = '';
   try {
     const s = await fs.m.getDoc(fs.m.doc(fs.db, 'admins', me.uid));
-    role = s.exists() ? s.data().role : '';
-  } catch (e) { role = ''; }
+    exists = s.exists();
+    raw = exists ? s.data().role : null;
+    role = normalizeRole(raw);
+  } catch (e) { readError = (e && e.code) || 'erreur'; role = ''; }
   const rank = RANK[role] || 0;
-  if (!rank) { denied('Accès réservé', "Cette page est réservée à l'équipe d'administration d'Imova."); return null; }
+  if (!rank) {
+    // diagnostic précis : on affiche ce qui a été lu dans la base, pour corriger sans deviner
+    const diag = readError
+      ? `Lecture de votre rôle impossible (${esc(readError)}) : vérifiez que les règles Firestore sont publiées (firestore.rules).`
+      : exists
+        ? `Document <code>admins/${esc(me.uid)}</code> trouvé, mais son champ <code>role</code> vaut « ${esc(String(raw))} ». Valeurs acceptées : <code>owner</code>, <code>admin</code>, <code>moderator</code>.`
+        : `Aucun document <code>admins/${esc(me.uid)}</code> n'a été trouvé pour votre compte.`;
+    denied('Accès réservé', "Cette page est réservée à l'équipe d'administration d'Imova.", diag);
+    return null;
+  }
   if (rank < minRank) { denied('Droits insuffisants', `Votre rôle (${ROLE_LABEL[role]}) ne permet pas d'ouvrir cette page.`); return null; }
   const items = NAV.filter((n) => n[3] <= rank);
   document.getElementById('adminHead').innerHTML = `

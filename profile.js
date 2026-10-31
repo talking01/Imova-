@@ -15,7 +15,7 @@ import { copyLink, shareLink, profileUrl } from './sharing.js';
 import { icon, hydrateIcons } from './icons.js';
 import { esc, clean, toast, compact, param, explainError, showFlash } from './utils.js';
 import { isEmail } from './validation.js';
-import { pageHeader, bindBack, emptyState, skeletonCard, stars, average, formatAverage } from './components.js';
+import { pageHeader, bindBack, emptyState, skeletonCard, stars, average, formatAverage, verifiedMark } from './components.js';
 import { setActiveTab } from './navbar.js';
 import { track } from './interests.js';
 import { openReport } from './reports.js';
@@ -396,7 +396,7 @@ async function run() {
     return;
   }
   document.getElementById('pageHeader').innerHTML = pageHeader(u ? (state.own ? 'Mon profil' : u.name || 'Profil') : 'Profil',
-    u ? `<button class="icon-btn" id="moreBtn" aria-label="Plus d'options">${icon('more')}</button>` : '', 'static');
+    u ? `<button class="icon-btn" id="moreBtn" aria-label="Plus d'options">${icon('more')}</button>` : '', 'static', u && !state.own ? verifiedMark(u.verified, 18) : '');
   bindBack();
   if (!u) {
     main.innerHTML = emptyState({ iconName: 'user', title: 'Profil introuvable', text: "Ce profil n'existe pas ou a été supprimé.", actionLabel: "Retour à l'accueil", actionHref: 'index.html' });

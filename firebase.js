@@ -63,3 +63,12 @@ export async function firestore() {
   }
   return dbPromise;
 }
+
+// Déconnecte la session d'un AUTRE compte enregistré sur l'appareil (emplacement acc2, acc3...)
+export async function signOutSlot(slot) {
+  if (!isConfigured) return;
+  const [appM, authM] = await Promise.all([import(`${CDN}/firebase-app.js`), import(`${CDN}/firebase-auth.js`)]);
+  let app;
+  try { app = appM.getApp(slot); } catch (e) { app = appM.initializeApp(firebaseConfig, slot); }
+  await authM.signOut(authM.getAuth(app));
+}

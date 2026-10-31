@@ -172,3 +172,6 @@ img, video, canvas, svg { max-width: 100%; }
 .announce { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; margin-bottom: 12px; border-radius: var(--radius); background: var(--gold-soft); color: #3d2d0a; border: 1px solid var(--gold); font-size: .92rem; }
 .announce .ic { flex: none; margin-top: 1px; }
 .announce button { margin-left: auto; flex: none; opacity: .7; }
+
+.page-header h1 .verified { margin-left: 6px; vertical-align: -3px; }
+.verified { color: var(--accent); display: inline-flex; flex: none; }

@@ -110,6 +110,18 @@ Ensuite, le propriétaire ajoute ou retire des membres lui-même dans **Administ
 
 **Compte « Support Imova »** (aide et demandes de badge) : le plus simple est d'utiliser **le même compte que l'administrateur** : copie son UID dans `app-config.js` (`SUPPORT_UID`). Les demandes arrivent alors dans ses messages, et ses décisions (badge accordé ou refusé) partent depuis ce même compte.
 
+**Si l'accès à l'administration est refusé** : la page affiche maintenant ce qu'elle a lu dans la base. Vérifie dans Firestore : collection `admins`, document dont **l'ID est exactement l'UID du compte** (Authentication → Utilisateurs), champ `role` de type **string** valant `owner`, `admin` ou `moderator` (les majuscules et espaces parasites sont tolérés, mais pas un autre mot).
+
+### A11 bis. Notifications et confidentialité : ce qu'il faut configurer
+1. **Règles Firestore** : publier le nouveau `firestore.rules` (A7). C'est **obligatoire** : il ajoute les notifications, les réglages personnels, le changement de nom, la suppression de compte et le choix de « qui peut me contacter ».
+2. **Aucun nouvel index** à créer.
+3. **Authentication → Modèles** : mets aussi en **français** le modèle « **Modification de l'adresse e-mail** » (comme à l'étape A5) : c'est l'e-mail de confirmation envoyé quand quelqu'un change d'adresse dans Confidentialité.
+4. **Authentication → Paramètres → Domaines autorisés** : l'adresse de ton site doit y être (A4), sinon les liens des e-mails échouent.
+5. **Notifications du navigateur** : *rien à configurer dans Firebase*. Il faut que le site soit en **HTTPS** (Netlify le fait) et que le fichier `sw.js` soit bien à la **racine** du dépôt. Chaque utilisateur doit **autoriser** les notifications (Menu → Confidentialité → Notifications → Activer, ou le bandeau de la page Notifications).
+   - **Elles s'affichent tant qu'Imova est ouverte**, même en arrière-plan ou réduite (téléphone ou ordinateur). Application **fermée ou téléphone verrouillé** : non.
+   - Sur **iPhone**, elles ne fonctionnent que si Imova est installée sur l'écran d'accueil (iOS 16.4 et plus).
+   - Pour des notifications **application fermée** (« push »), il faut en plus : Firebase Cloud Messaging, une clé « VAPID » (Paramètres du projet → Cloud Messaging), des **Cloud Functions** qui envoient les notifications, et donc le **plan Blaze** (avec carte bancaire, et un budget gratuit généreux au départ). Ce n'est pas inclus : on peut l'ajouter plus tard si tu le souhaites.
+
 ### A12. Bonnes pratiques
 - Ne passe **jamais** Firestore en mode test, ne publie jamais de clé secrète.
 - Garde la validation en deux étapes sur le compte Google propriétaire.

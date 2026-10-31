@@ -1,6 +1,6 @@
 rules_version = '2';
-// RÈGLES — Phase 3, étape 6 (annonces, J'aime, favoris, profils, abonnements, avis, messagerie, vérifications de badge,
-// statistiques, ADMINISTRATION avec rôles : propriétaire, administrateur, modérateur).
+// RÈGLES — Phase 3, étape 7 (annonces, J'aime, favoris, profils, abonnements, avis, messagerie, badge de vérification,
+// statistiques, administration avec rôles, NOTIFICATIONS, CONFIDENTIALITÉ et réglages personnels).
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -46,9 +46,25 @@ service cloud.firestore {
     // ───────── Administration : rôles (documents admins/UID, créés par le propriétaire ou à la main dans la console)
     function adminPath(uid) { return /databases/$(database)/documents/admins/$(uid); }
     function isStaff() { return signedIn() && exists(adminPath(request.auth.uid)); }
-    function staffRole() { return get(adminPath(request.auth.uid)).data.role; }
+    function staffRole() { return get(adminPath(request.auth.uid)).data.role.lower(); }
     function isAdmin() { return isStaff() && staffRole() in ['owner', 'admin']; }
     function isOwnerRole() { return isStaff() && staffRole() == 'owner'; }
+    // Confidentialité : qui peut démarrer une conversation avec moi ? (tout le monde, ou seulement les personnes que je suis ;
+    // l'équipe d'administration et le support peuvent toujours écrire)
+    function canStartWith(other) {
+      return get(userPath(other)).data.get('messagesFrom', 'everyone') == 'everyone'
+        || exists(followPath(other, request.auth.uid))
+        || exists(adminPath(other));
+    }
+    function validPrefs(p) {
+      return p.keys().hasOnly(['readReceipts', 'typingIndicator', 'notif', 'browser', 'updatedAt'])
+        && p.readReceipts is bool && p.typingIndicator is bool
+        && p.notif is map && p.notif.keys().hasOnly(['messages', 'follows', 'likes', 'reviews', 'followedPosts'])
+        && p.notif.get('messages', true) is bool && p.notif.get('follows', true) is bool && p.notif.get('likes', true) is bool
+        && p.notif.get('reviews', true) is bool && p.notif.get('followedPosts', true) is bool
+        && p.browser is map && p.browser.keys().hasOnly(['enabled', 'messages', 'activity'])
+        && p.browser.get('enabled', false) is bool && p.browser.get('messages', true) is bool && p.browser.get('activity', true) is bool;
+    }
     // un compte suspendu ne peut plus publier, écrire, suivre ni noter
     function notSuspended() { return !get(userPath(request.auth.uid)).data.get('suspended', false); }
     function settingsPath() { return /databases/$(database)/documents/platformSettings/main; }
@@ -198,7 +214,8 @@ service cloud.firestore {
       allow update: if signedIn()
         && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['photoUrl', 'coverUrl', 'bio', 'description', 'phone', 'contactEmail', 'address', 'website', 'hours', 'lastSeen'])
+             .hasOnly(['photoUrl', 'coverUrl', 'bio', 'description', 'phone', 'contactEmail', 'address', 'website', 'hours', 'lastSeen',
+                       'showStatus', 'messagesFrom', 'discoverable'])
         && optMatch('photoUrl', 'https://res\\.cloudinary\\.com/.*', 500)
         && optMatch('coverUrl', 'https://res\\.cloudinary\\.com/.*', 500)
         && optMatch('website', 'https?://.*', 200)
@@ -209,7 +226,25 @@ service cloud.firestore {
         && optStr('address', 200)
         && optStr('hours', 300)
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['lastSeen'])
-            || request.resource.data.lastSeen == request.time);
+            || request.resource.data.lastSeen == request.time)
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['showStatus'])
+            || request.resource.data.showStatus is bool)
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['discoverable'])
+            || request.resource.data.discoverable is bool)
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['messagesFrom'])
+            || request.resource.data.messagesFrom in ['everyone', 'following']);
+
+      // Changement de nom (page Confidentialité) : une fois tous les 30 jours, jamais pour un profil vérifié
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && resource.data.verified == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'nameLower', 'nameChangedAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 60
+        && request.resource.data.nameLower == request.resource.data.name.lower()
+        && request.resource.data.nameChangedAt == request.time
+        && (!('nameChangedAt' in resource.data) || request.time > resource.data.nameChangedAt + duration.value(30, 'd'));
 
       // Compteur d'abonnés d'un profil : +1 seulement avec la création de l'abonnement, -1 seulement avec sa suppression
       allow update: if signedIn()
@@ -262,7 +297,8 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratingSum', 'ratingCount'])
         && request.resource.data.ratingCount == resource.data.ratingCount - 1;
 
-      allow delete: if false;
+      // Suppression de son propre compte (page Confidentialité)
+      allow delete: if signedIn() && request.auth.uid == uid;
     }
 
     // ───────── Abonnements ─────────
@@ -340,6 +376,7 @@ service cloud.firestore {
 
       allow create: if signedIn()
         && notSuspended()
+        && canStartWith(request.resource.data.members[0] == request.auth.uid ? request.resource.data.members[1] : request.resource.data.members[0])
         && request.resource.data.keys().hasOnly(['members', 'lastMessage', 'unread', 'lastRead', 'lastSent', 'pinnedBy',
              'mutedBy', 'hidden', 'clearedAt', 'typing', 'context', 'createdAt', 'updatedAt'])
         && request.resource.data.members is list
@@ -551,6 +588,52 @@ service cloud.firestore {
         && request.resource.data.details is string
         && request.resource.data.details.size() <= 500;
       allow update, delete: if false;
+    }
+
+    // ───────── Notifications (chacun lit et gère les siennes ; les autres ne peuvent qu'en créer de vérifiables)
+    match /notifications/{uid}/items/{id} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn()
+        && uid != request.auth.uid
+        && request.resource.data.keys().hasOnly(['type', 'actorId', 'refId', 'title', 'body', 'link', 'read', 'createdAt'])
+        && request.resource.data.actorId == request.auth.uid
+        && request.resource.data.read == false
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.title is string && request.resource.data.title.size() <= 120
+        && request.resource.data.body is string && request.resource.data.body.size() <= 200
+        && request.resource.data.refId is string && request.resource.data.refId.size() <= 200
+        && request.resource.data.link is string && request.resource.data.link.size() <= 200
+        && request.resource.data.link.matches('[a-z0-9-]+\\.html(\\?[A-Za-z0-9=_&%.-]*)?')
+        && (
+          (request.resource.data.type == 'follow'
+            && id == 'follow_' + request.auth.uid
+            && existsAfter(followPath(request.auth.uid, uid)))
+          ||
+          (request.resource.data.type == 'like'
+            && id == 'like_' + request.auth.uid + '_' + request.resource.data.refId
+            && existsAfter(likePath(request.resource.data.refId, request.auth.uid))
+            && get(propertyPath(request.resource.data.refId)).data.authorId == uid)
+          ||
+          (request.resource.data.type == 'review'
+            && id == 'review_' + request.auth.uid
+            && existsAfter(reviewPath(uid, request.auth.uid)))
+          ||
+          (request.resource.data.type in ['moderation', 'verification', 'system'] && isStaff())
+        );
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read is bool;
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ───────── Réglages personnels (privés) : accusés de lecture, « écrit… », notifications
+    match /userSettings/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && validPrefs(request.resource.data)
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if signedIn() && request.auth.uid == uid;
     }
 
     match /{document=**} {

@@ -131,9 +131,12 @@ export async function sendMessage({ me, other, type = 'text', text = '', mediaUr
 }
 
 // ───────── Lecture, saisie, modification, suppression
-export async function markRead(cid, me) {
+// receipts = false (accusés de lecture désactivés) : on remet le compteur à zéro sans dire à l'autre personne qu'on a lu
+export async function markRead(cid, me, { receipts = true } = {}) {
   const { m, db } = await need();
-  await m.updateDoc(m.doc(db, 'conversations', cid), { [`unread.${me}`]: 0, [`lastRead.${me}`]: m.serverTimestamp() });
+  const upd = { [`unread.${me}`]: 0 };
+  if (receipts) upd[`lastRead.${me}`] = m.serverTimestamp();
+  await m.updateDoc(m.doc(db, 'conversations', cid), upd);
 }
 
 export async function setTyping(cid, me) {

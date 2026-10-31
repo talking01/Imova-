@@ -18,6 +18,9 @@ import { icon, hydrateIcons } from './icons.js';
 import { esc, clean, toast, clock, dayLabel, lastSeenLabel, mmss, param, explainError } from './utils.js';
 import { isConfigured } from './firebase.js';
 import { SUPPORT_UID } from './app-config.js';
+import { getPrefs } from './settings.js';
+import { isFollowing } from './follows.js';
+import { initBadges } from './badges.js';
 import { emptyState } from './components.js';
 
 const PREDEFINED = 'Salut ! Je suis intéressé par cet article, pouvons-nous en discuter ?';
@@ -26,6 +29,7 @@ const head = $('chatHead'), scroll = $('scroll'), msgsEl = $('msgs'), uploadsEl 
 
 const S = {
   me: '', other: '', cid: '', other_user: null, conv: null, live: new Map(), older: new Map(), liveLast: null, olderLast: null,
+  prefs: null, restricted: false,
   hasMore: false, loadingOlder: false, msgWatch: false, blocked: false, pending: null, creating: false, editing: null, rec: null,
   seen: new Set(), firstLoad: true, newCount: 0, atBottom: true, lastTyping: 0, marking: false, prefilled: false, menuOpen: false, cache: new Map()
 };
@@ -217,7 +221,7 @@ function maybeMarkRead() {
   if (document.visibilityState !== 'visible' || !S.conv || S.marking) return;
   if (((S.conv.unread || {})[S.me] || 0) > 0) {
     S.marking = true;
-    markRead(S.cid, S.me).catch(() => {}).finally(() => setTimeout(() => { S.marking = false; }, 800));
+    markRead(S.cid, S.me, { receipts: !S.prefs || S.prefs.readReceipts }).catch(() => {}).finally(() => setTimeout(() => { S.marking = false; }, 800));
   }
 }
 
@@ -323,6 +327,7 @@ async function doUnblock() {
 function renderComposer() {
   composer.innerHTML = `
     <div class="banner-row" id="editBanner" hidden>${icon('pencil', 18)}<span class="grow" id="editText"></span><button class="icon-btn" id="editCancel" aria-label="Annuler la modification">${icon('close', 18)}</button></div>
+    <div class="blocked-box" id="restrictBox" hidden><span>Cette personne n'accepte les nouveaux messages que de ses abonnements. Vous pourrez lui écrire si elle vous suit.</span></div>
     <div class="blocked-box" id="blockedBox" hidden><span>Vous avez bloqué ce contact.</span><button class="btn btn-ghost" id="unblockBtn">Débloquer</button></div>
     <div class="row" id="normalRow">
       <div class="input-pill">
@@ -357,7 +362,9 @@ function renderComposer() {
 
 function paintComposerState() {
   $('blockedBox').hidden = !S.blocked;
-  $('normalRow').hidden = S.blocked || !!S.rec;
+  const rb = $('restrictBox');
+  if (rb) rb.hidden = !S.restricted || !!S.conv;
+  $('normalRow').hidden = S.blocked || !!S.rec || (S.restricted && !S.conv);
   $('recRow').hidden = !S.rec;
   $('editBanner').hidden = !S.editing;
 }
@@ -377,7 +384,7 @@ function onInput() {
   grow();
   updateAction();
   if (!S.editing) { try { localStorage.setItem(draftKey(), input.value); } catch (e) { /* ignoré */ } }
-  if (clean(input.value, 2000) && S.conv && !S.editing && Date.now() - S.lastTyping > 4000) { S.lastTyping = Date.now(); setTyping(S.cid, S.me).catch(() => {}); }
+  if (clean(input.value, 2000) && S.conv && !S.editing && (!S.prefs || S.prefs.typingIndicator) && Date.now() - S.lastTyping > 4000) { S.lastTyping = Date.now(); setTyping(S.cid, S.me).catch(() => {}); }
 }
 
 // Message prédéfini quand on arrive depuis une annonce (« Discuter »)
@@ -608,6 +615,11 @@ async function init() {
   if (!S.other_user) { fatal('Profil introuvable', "Cette personne n'existe pas ou n'est plus disponible."); return; }
   try { S.blocked = (await getBlockedIds(S.me)).has(other); } catch (e) { S.blocked = false; }
 
+  try { S.prefs = await getPrefs(S.me); } catch (e) { S.prefs = null; }
+  // Confidentialité du destinataire : il n'accepte peut-être que les messages des personnes qu'il suit
+  if (S.other_user.messagesFrom === 'following' && S.other !== SUPPORT_UID) {
+    try { S.restricted = !(await isFollowing(S.other, S.me)); } catch (e) { S.restricted = false; }
+  }
   const pid = param('property');
   if (pid) {
     try {
@@ -620,6 +632,7 @@ async function init() {
   renderCtx();
   bindUi();
   startPresence(S.me);
+  initBadges({ currentCid: S.cid });
   watchUser(other, (u) => { if (u) { S.other_user = { ...S.other_user, ...u }; renderStatus(); } }).catch(() => {});
   await watchConversation(S.cid, onConv, (e) => { console.error(e); toast(explainError(e)); });
 

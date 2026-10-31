@@ -4,7 +4,8 @@ import { getTheme, toggleTheme, toast, esc } from './utils.js';
 import { pageHeader, bindBack } from './components.js';
 import { isReady, notReadyMessage } from './pages.js';
 import { whenReady, getUser, logout, switchAccount } from './auth.js';
-import { listAccounts } from './accounts.js';
+import { listAccounts, saveAccount } from './accounts.js';
+import { verifiedMark } from './components.js';
 import { activeSlot, isConfigured } from './firebase.js';
 import { openModal } from './modal.js';
 import { optimized } from './viewer.js';
@@ -84,7 +85,7 @@ function renderAccounts(user) {
   const rows = list.map((a) => `
     <button class="row account" data-slot="${esc(a.slot)}">
       ${avatar(a.name || a.email, a.photoUrl)}
-      <span class="row-label"><strong>${esc(a.name || a.email)}</strong><small>${esc(a.email || '')}${a.type ? ' · ' + esc(TYPES[a.type] || a.type) : ''}</small></span>
+      <span class="row-label"><strong>${esc(a.name || a.email)}${a.verified ? verifiedMark(true, 14) : ''}</strong><small>${esc(a.email || '')}${a.type ? ' · ' + esc(TYPES[a.type] || a.type) : ''}</small></span>
       ${user && a.slot === active ? '<span class="tag">Actif</span>' : ''}
     </button>`).join('');
   document.getElementById('accounts').innerHTML = `
@@ -108,6 +109,9 @@ async function enrich(user) {
   if (!user) return;
   try {
     const [u, req] = await Promise.all([getUserDoc(user.uid), getMyRequest(user.uid).catch(() => null)]);
+    saveAccount({ slot: activeSlot(), verified: !!(u && u.verified) });
+    const me = document.querySelector('#menuList .account .row-label strong');
+    if (me && u && u.verified && !me.querySelector('.verified')) me.insertAdjacentHTML('beforeend', verifiedMark(true, 15));
     const row = document.querySelector('#menuList a[href="badge.html"] .row-label');
     if (row) {
       const tag = u && u.verified ? ['Vérifié', 'ok'] : req && req.status === 'pending' ? ['En attente', 'warn'] : null;

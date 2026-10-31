@@ -1,6 +1,7 @@
 // Imova — admin-properties.js : admin-properties.html (toutes les annonces)
 import { initAdmin, audit, names, nameOf, fmtDate, pill, confirmAction } from './admin.js';
 import { buildTokens } from './search.js';
+import { notify } from './notifs.js';
 import { icon, hydrateIcons } from './icons.js';
 import { esc, toast, explainError, compact } from './utils.js';
 import { emptyState } from './components.js';
@@ -60,6 +61,7 @@ main.addEventListener('click', (e) => {
       onConfirm: async (note) => {
         await m.updateDoc(m.doc(db, 'properties', p.id), hide ? { status: 'hidden', moderationNote: note || '' } : { status: 'active', moderationNote: '' });
         await audit(ctx, hide ? 'property_hide' : 'property_show', 'property', p.id, `${p.title}${note ? ' — ' + note : ''}`);
+        notify(p.authorId, { type: 'moderation', id: `moderation_${Date.now()}`, title: hide ? 'Votre annonce a été masquée' : 'Votre annonce est de nouveau visible', body: `${p.title}${hide && note ? ' — ' + note : ''}`, link: 'profile.html' });
         p.status = hide ? 'hidden' : 'active'; p.moderationNote = hide ? note : ''; toast(hide ? 'Annonce masquée' : 'Annonce réactivée'); render();
       }
     });

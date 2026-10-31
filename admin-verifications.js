@@ -1,6 +1,7 @@
 // Imova — admin-verifications.js : liste d'attente des demandes de badge (administrateurs)
 import { initAdmin, audit, names, nameOf, fmtDate, fmtDateTime, since, pill, statusPill, confirmAction, millis } from './admin.js';
 import { sendMessage } from './messaging.js';
+import { notify } from './notifs.js';
 import { icon, hydrateIcons } from './icons.js';
 import { esc, toast, explainError } from './utils.js';
 import { emptyState } from './components.js';
@@ -65,6 +66,7 @@ async function decide(r, status, note) {
     rejected: `Votre demande de badge de vérification n'a pas pu être acceptée.${note ? '\nMotif : ' + note : ''}\nVous pouvez refaire une demande depuis Menu → Vérification.`,
     revoked: `Le badge de vérification de votre profil a été retiré.${note ? '\nMotif : ' + note : ''}`
   }[status];
+  notify(r.userId, { type: 'verification', id: `verification_${Date.now()}`, title: { approved: 'Badge de vérification accordé', rejected: 'Demande de badge refusée', revoked: 'Badge de vérification retiré' }[status], body: note || '', link: 'badge.html' });
   try { await sendMessage({ me: ctx.me.uid, other: r.userId, type: 'text', text: msg }); } catch (e) { toast("Décision enregistrée, mais le message n'a pas pu être envoyé."); }
 }
 

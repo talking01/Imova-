@@ -2,6 +2,11 @@
 import { icon } from './icons.js';
 import { esc } from './utils.js';
 
+// Pastille de badge de vérification à placer après un nom (rien si le profil n'est pas vérifié)
+export function verifiedMark(verified, size = 15) {
+  return verified ? `<span class="verified" title="Profil vérifié" aria-label="Profil vérifié">${icon('badge', size)}</span>` : '';
+}
+
 export function emptyState({ iconName = 'building', title, text = '', actionLabel = '', actionHref = '' }) {
   return `
     <div class="empty">
@@ -25,11 +30,11 @@ export function skeletonCard() {
 }
 
 // En-tête avec flèche retour : <div id="pageHeader"></div> puis pageHeader('Menu')
-export function pageHeader(title, right = '', extraClass = '') {
+export function pageHeader(title, right = '', extraClass = '', titleExtra = '') {
   return `
     <header class="page-header glass ${extraClass}">
       <button class="icon-btn" data-back aria-label="Retour">${icon('back')}</button>
-      <h1>${esc(title)}</h1>
+      <h1>${esc(title)}${titleExtra}</h1>
       <div>${right}</div>
     </header>`;
 }

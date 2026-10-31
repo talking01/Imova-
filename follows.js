@@ -3,6 +3,8 @@
 // les règles Firestore refusent l'un sans l'autre, donc le compteur ne peut pas être falsifié.
 import { firestore } from './firebase.js';
 import { track } from './interests.js';
+import { notify } from './notifs.js';
+import { getUser } from './auth.js';
 
 async function need() {
   const fs = await firestore();
@@ -23,6 +25,8 @@ export async function follow(me, target) {
   batch.update(m.doc(db, 'users', target), { followersCount: m.increment(1) });
   await batch.commit();
   track('follow', { authorId: target });
+  const who = getUser();
+  notify(target, { type: 'follow', id: `follow_${me}`, title: `${(who && who.name) || 'Quelqu\'un'} vous suit`, body: 'Nouvel abonné', link: `profile.html?id=${me}`, refId: me });
   if (followingCache && followingCache.uid === me) followingCache.list.push(target);
 }
 

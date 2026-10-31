@@ -115,7 +115,7 @@ export function createPostCard(property, author = {}, opts = {}) {
     const was = st.liked.has(property.id);
     btn.disabled = true;
     try {
-      await setLike(me.uid, property.id, !was);
+      await setLike(me.uid, property.id, !was, { authorId: property.authorId, title: property.title });
       if (was) { st.liked.delete(property.id); property.likesCount = Math.max(0, (property.likesCount || 0) - 1); }
       else { st.liked.add(property.id); property.likesCount = (property.likesCount || 0) + 1; track('like', property); }
       btn.classList.toggle('on', !was);

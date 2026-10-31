@@ -65,7 +65,7 @@ export async function getProperty(id, { includeHidden = false } = {}) {
 
 // Auteurs : on lit users/{id} une seule fois par auteur (mémoire de la page + 10 min en session)
 const memory = new Map();
-const TTL = 10 * 60 * 1000;
+const TTL = 3 * 60 * 1000; // un badge accordé apparaît partout en moins de 3 minutes
 
 function fromSession(id) {
   try {
