@@ -5,7 +5,7 @@ import { getUserDoc } from './users.js';
 import { listReviews } from './reviews.js';
 import { loadAuthors } from './properties.js';
 import { openRatingModal } from './rating-modal.js';
-import { pageHeader, bindBack, emptyState, skeletonCard, stars, average, formatAverage } from './components.js';
+import { pageHeader, bindBack, emptyState, skeletonCard, stars, average, formatAverage, verifiedMark } from './components.js';
 import { isConfigured } from './firebase.js';
 import { esc, param, timeAgo, explainError, compact } from './utils.js';
 import { optimized } from './viewer.js';
@@ -46,7 +46,7 @@ async function run() {
           const a = authors.get(r.reviewerId) || {};
           const isMine = me && r.reviewerId === me.uid;
           return `<article class="review ${isMine ? 'mine' : ''}">
-            <div class="review-head">${avatar(a)}<div class="meta"><strong>${esc(a.name || 'Utilisateur')}${isMine ? ' (vous)' : ''}</strong><small>${esc(timeAgo(r.updatedAt || r.createdAt))}</small></div>${stars(r.rating)}</div>
+            <div class="review-head">${avatar(a)}<div class="meta"><strong>${esc(a.name || 'Utilisateur')}${verifiedMark(a.verified)}${isMine ? ' (vous)' : ''}</strong><small>${esc(timeAgo(r.updatedAt || r.createdAt))}</small></div>${stars(r.rating)}</div>
             ${r.comment ? `<p>${esc(r.comment)}</p>` : ''}
           </article>`;
         }).join('') : emptyState({ iconName: 'star', title: "Pas encore d'avis", text: isOwn ? "Vos avis apparaîtront ici." : "Soyez le premier à donner votre avis." })}

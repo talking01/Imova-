@@ -81,9 +81,10 @@ export async function searchProfiles(q) {
   if (!fs) return [];
   const { m, db } = fs;
   const snap = await m.getDocs(m.query(
-    m.collection(db, 'users'), m.where('nameLower', '>=', text), m.where('nameLower', '<=', text + '\uf8ff'), m.limit(20)
+    m.collection(db, 'users'), m.where('nameLower', '>=', text), m.where('nameLower', '<=', text + '\uf8ff'), m.limit(40)
   ));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  // les profils qui ont désactivé « apparaître dans la recherche » ne sont pas listés
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((u) => u.discoverable !== false);
 }
 
 // Recherches récentes (sur cet appareil)

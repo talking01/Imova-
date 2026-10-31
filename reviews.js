@@ -1,6 +1,8 @@
 // Imova — reviews.js : notes et avis. Un seul avis par personne et par profil (ID = profil_auteur).
 // L'avis et les compteurs du profil (somme et nombre de notes) sont écrits ENSEMBLE, pour que la moyenne soit fiable.
 import { firestore } from './firebase.js';
+import { notify } from './notifs.js';
+import { getUser } from './auth.js';
 
 async function need() {
   const fs = await firestore();
@@ -39,6 +41,10 @@ export async function saveReview({ target, reviewer, rating, comment }) {
     batch.update(m.doc(db, 'users', target), { ratingSum: m.increment(rating), ratingCount: m.increment(1) });
   }
   await batch.commit();
+  if (!existing.exists()) {
+    const who = getUser();
+    notify(target, { type: 'review', id: `review_${reviewer}`, title: `${(who && who.name) || 'Quelqu\'un'} a laissé un avis`, body: `${rating} étoile${rating > 1 ? 's' : ''}${comment ? ' : ' + comment.slice(0, 100) : ''}`, link: `reviews.html?id=${target}`, refId: reviewer });
+  }
 }
 
 export async function deleteReview({ target, reviewer }) {
