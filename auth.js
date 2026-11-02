@@ -1,6 +1,7 @@
 // Imova — auth.js : inscription, connexion, déconnexion, session et changement de compte.
 import { auth as getAuth, firestore, activeSlot, isConfigured } from './firebase.js';
 import { saveAccount, removeAccount, listAccounts, setActive, clearActive, getAccount } from './accounts.js';
+import { identifierToLogin, publicNameOf, birthToDate } from './identity.js';
 
 let current = null;
 let settled = false;
@@ -58,42 +59,55 @@ function fail(code, cause) {
   return e;
 }
 
-export async function register({ type, name, email, password }) {
+// Création d'un compte complet : connexion + profil public (users) + informations personnelles privées (userPrivate), écrits ensemble.
+// Après la création, la personne est déconnectée : la page de bienvenue précède la première connexion.
+// d : { type, firstName, lastName, postName, gender, birthDate (AAAA-MM-JJ), agencyName, login: {type,email,key,phone?}, contactEmail, password }
+export async function createAccount(d) {
   const a = await getAuth();
   const fs = await firestore();
   if (!a || !fs) throw fail('imova/not-configured');
-  const cred = await a.m.createUserWithEmailAndPassword(a.instance, email, password);
+  const name = publicNameOf({ accountType: d.type, firstName: d.firstName, lastName: d.lastName, agencyName: d.agencyName });
+  const step = d.onStep || (() => {});
+  step(1);
+  const cred = await a.m.createUserWithEmailAndPassword(a.instance, d.login.email, d.password);
   const user = cred.user;
+  const { m, db } = fs;
+  const email = d.login.type === 'email' ? d.login.email : (d.contactEmail || '');
+  const phone = d.login.type === 'phone' ? d.login.phone : '';
   try {
+    step(2);
     await a.m.updateProfile(user, { displayName: name });
-    await fs.m.setDoc(fs.m.doc(fs.db, 'users', user.uid), {
-      type,
-      name,
-      nameLower: name.toLowerCase(),
-      photoUrl: '',
-      coverUrl: '',
-      bio: '',
-      followersCount: 0,
-      postsCount: 0,
-      ratingSum: 0,
-      ratingCount: 0,
-      verified: false,
-      createdAt: fs.m.serverTimestamp()
+    const batch = m.writeBatch(db);
+    batch.set(m.doc(db, 'users', user.uid), {
+      type: d.type, name, nameLower: name.toLowerCase(), photoUrl: '', coverUrl: '', bio: '',
+      followersCount: 0, postsCount: 0, ratingSum: 0, ratingCount: 0, verified: false, createdAt: m.serverTimestamp()
     });
+    const priv = {
+      accountType: d.type, firstName: d.firstName, lastName: d.lastName, postName: d.postName, gender: d.gender, birthDate: birthToDate(d.birthDate),
+      loginType: d.login.type, loginId: d.login.key, email, phone, searchKeys: [...new Set([d.login.key, email.toLowerCase(), phone].filter(Boolean))],
+      consent: { acceptedAt: m.serverTimestamp(), version: '2026-10' }, createdAt: m.serverTimestamp(), updatedAt: m.serverTimestamp()
+    };
+    if (d.type === 'agence') priv.agencyName = d.agencyName;
+    batch.set(m.doc(db, 'userPrivate', user.uid), priv);
+    await batch.commit();
   } catch (e) {
     // Le profil n'a pas pu être créé : on annule le compte pour ne pas laisser un compte à moitié créé
     try { await user.delete(); } catch (e2) { /* ignoré */ }
     throw fail('imova/profile-failed', e);
   }
-  saveAccount({ slot: activeSlot(), uid: user.uid, email, name, type, photoUrl: '' });
-  setActive(activeSlot());
-  return user;
+  step(3);
+  try { await a.m.signOut(a.instance); } catch (e) { /* ignoré */ }
+  return { uid: user.uid, name };
 }
 
-export async function login({ email, password }) {
+// identifier : e-mail ou numéro de téléphone ; dial : indicatif par défaut pour un numéro saisi sans « + »
+export async function login({ identifier, dial, password }) {
   const a = await getAuth();
   const fs = await firestore();
   if (!a || !fs) throw fail('imova/not-configured');
+  const id = identifierToLogin(identifier, dial);
+  if (!id) throw fail('imova/invalid-identifier');
+  const email = id.email;
   const cred = await a.m.signInWithEmailAndPassword(a.instance, email, password);
   const user = cred.user;
   let type = '';
@@ -108,7 +122,7 @@ export async function login({ email, password }) {
       photoUrl = d.photoUrl || photoUrl;
     }
   } catch (e) { /* le profil sera relu plus tard */ }
-  saveAccount({ slot: activeSlot(), uid: user.uid, email, name, type, photoUrl });
+  saveAccount({ slot: activeSlot(), uid: user.uid, email, loginLabel: id.type === 'phone' ? id.phone : email, name, type, photoUrl });
   setActive(activeSlot());
   return user;
 }
@@ -158,6 +172,7 @@ export function authMessage(err) {
     case 'auth/network-request-failed': return 'Pas de connexion Internet. Vérifiez votre réseau.';
     case 'auth/user-disabled': return 'Ce compte a été désactivé.';
     case 'auth/operation-not-allowed': return "La connexion par e-mail n'est pas activée dans Firebase (Authentication → Méthode de connexion).";
+    case 'imova/invalid-identifier': return 'Saisissez une adresse e-mail ou un numéro de téléphone valide.';
     case 'imova/not-configured': return "Firebase n'est pas encore configuré (firebase-config.js).";
     case 'imova/profile-failed': return "Le profil n'a pas pu être créé. Vérifiez que les règles Firestore de cette étape sont publiées.";
     default: return 'Une erreur est survenue. Réessayez dans un instant.';

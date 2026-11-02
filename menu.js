@@ -85,7 +85,7 @@ function renderAccounts(user) {
   const rows = list.map((a) => `
     <button class="row account" data-slot="${esc(a.slot)}">
       ${avatar(a.name || a.email, a.photoUrl)}
-      <span class="row-label"><strong>${esc(a.name || a.email)}${a.verified ? verifiedMark(true, 14) : ''}</strong><small>${esc(a.email || '')}${a.type ? ' · ' + esc(TYPES[a.type] || a.type) : ''}</small></span>
+      <span class="row-label"><strong>${esc(a.name || a.email)}${a.verified ? verifiedMark(true, 14) : ''}</strong><small>${esc(a.loginLabel || a.email || '')}${a.type ? ' · ' + esc(TYPES[a.type] || a.type) : ''}</small></span>
       ${user && a.slot === active ? '<span class="tag">Actif</span>' : ''}
     </button>`).join('');
   document.getElementById('accounts').innerHTML = `

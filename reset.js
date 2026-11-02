@@ -16,6 +16,11 @@ if (!isConfigured) {
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   setFormError('');
+  if (!email.value.includes('@') && /\d{6,}/.test(email.value)) {
+    setFieldError(email, '');
+    setFormError("Les comptes créés avec un numéro de téléphone n'ont pas d'adresse e-mail : la réinitialisation par e-mail n'est pas possible. Écrivez au support depuis la page d'aide.", 'info');
+    return;
+  }
   const err = checkEmail(email.value);
   setFieldError(email, err);
   if (err) return;

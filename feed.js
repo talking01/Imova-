@@ -1,14 +1,14 @@
 // Imova — feed.js : le fil d'annonces de index.html (défilement continu)
 // Un seul fil : les annonces de tous les utilisateurs, classées selon vos centres d'intérêt (et par fraîcheur au début).
-import { fetchProperties, loadAuthors } from './properties.js';
-import { buildForYou, suggestProfiles } from './recommend.js';
+import { fetchProperties, loadAuthors, fetchByIds } from './properties.js';
+import { buildForYou, suggestProfiles, ensureRecommendations } from './recommend.js';
 import { getLikedSet, getFavoriteIds } from './likes.js';
-import { markSeen } from './interests.js';
+import { markSeen, getProfile, personalizationOn } from './interests.js';
 import { follow } from './follows.js';
 import { whenReady } from './auth.js';
 import { requireAuth } from './guards.js';
 import { createPostCard } from './postcard.js';
-import { skeletonCard, emptyState } from './components.js';
+import { skeletonCard, emptyState, verifiedMark } from './components.js';
 import { isConfigured } from './firebase.js';
 import { hydrateIcons, icon } from './icons.js';
 import { esc, toast, explainError } from './utils.js';
@@ -47,18 +47,36 @@ function showCache(on) { cacheNotice.hidden = !on; }
 
 async function nextBatch() {
   if (first) {
-    const built = await buildForYou({ me });
-    ranked = built.ranked.map((r) => ({ p: r.p, reason: r.reason }));
-    ranked.forEach((r) => seen.add(r.p.id));
-    recentCursor = built.recentCursor; recentDone = built.recentDone;
-    showCache(built.fromCache);
+    // connecté : recommandations enregistrées dans la base (calculées à partir de vos actions, préférences, abonnements...)
+    const stored = me ? await ensureRecommendations(me).catch(() => null) : null;
+    const hidden = personalizationOn() ? getProfile().hidden : new Set();
+    if (stored && stored.properties && stored.properties.length) {
+      ranked = stored.properties.filter((e) => !hidden.has(e.id)).map((e) => ({ id: e.id, p: null, reason: e.reason }));
+      ranked.forEach((r) => seen.add(r.id));
+      recentCursor = null; recentDone = false;
+      showCache(false);
+    } else {
+      const built = await buildForYou({ me });
+      ranked = built.ranked.map((r) => ({ id: r.p.id, p: r.p, reason: r.reason }));
+      ranked.forEach((r) => seen.add(r.id));
+      recentCursor = built.recentCursor; recentDone = built.recentDone;
+      showCache(built.fromCache);
+    }
   }
-  const batch = ranked.slice(idx, idx + 8);
+  let batch = ranked.slice(idx, idx + 8);
   idx += batch.length;
+  // les recommandations enregistrées ne contiennent que les identifiants : on charge les annonces de cette page
+  const missing = batch.filter((e) => !e.p).map((e) => e.id);
+  if (missing.length) {
+    const got = await fetchByIds(missing);
+    const byId = new Map(got.map((p) => [p.id, p]));
+    batch.forEach((e) => { if (!e.p) e.p = byId.get(e.id) || null; });
+    batch = batch.filter((e) => e.p);
+  }
   if (batch.length < 8 && !recentDone) {
     const res = await fetchProperties({ after: recentCursor });
     recentCursor = res.cursor; recentDone = res.done;
-    res.items.filter((p) => !seen.has(p.id)).forEach((p) => { seen.add(p.id); batch.push({ p, reason: '' }); });
+    res.items.filter((p) => !seen.has(p.id)).forEach((p) => { seen.add(p.id); batch.push({ id: p.id, p, reason: '' }); });
   }
   done = idx >= ranked.length && recentDone;
   return batch;
@@ -107,7 +125,7 @@ async function insertSuggestions(my) {
     sec.innerHTML = `<h3>Profils à suivre</h3><div class="suggest-row">${list.map(({ u, reason }) => `
       <div class="card suggest-card">
         <a href="profile.html?id=${encodeURIComponent(u.id)}" class="avatar">${u.photoUrl ? `<img src="${esc(optimized(u.photoUrl, 120))}" alt="">` : esc((u.name || '?').trim().charAt(0).toUpperCase())}</a>
-        <strong>${esc(u.name)}</strong>
+        <strong>${esc(u.name)}${verifiedMark(u.verified, 14)}</strong>
         <small>${esc(reason)}</small>
         <button class="btn btn-primary" data-follow="${esc(u.id)}">Suivre</button>
       </div>`).join('')}</div>`;

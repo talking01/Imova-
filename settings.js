@@ -4,6 +4,7 @@
 import { firestore } from './firebase.js';
 
 export const DEFAULT_PREFS = {
+  personalization: true,
   readReceipts: true,
   typingIndicator: true,
   notif: { messages: true, follows: true, likes: true, reviews: true, followedPosts: true },
@@ -39,7 +40,7 @@ export async function savePrefs(uid, prefs) {
   if (!fs) throw new Error('Firebase non configuré');
   const p = merge(prefs);
   await fs.m.setDoc(fs.m.doc(fs.db, 'userSettings', uid), {
-    readReceipts: !!p.readReceipts, typingIndicator: !!p.typingIndicator,
+    personalization: p.personalization !== false, readReceipts: !!p.readReceipts, typingIndicator: !!p.typingIndicator,
     notif: { messages: !!p.notif.messages, follows: !!p.notif.follows, likes: !!p.notif.likes, reviews: !!p.notif.reviews, followedPosts: !!p.notif.followedPosts },
     browser: { enabled: !!p.browser.enabled, messages: !!p.browser.messages, activity: !!p.browser.activity },
     updatedAt: fs.m.serverTimestamp()

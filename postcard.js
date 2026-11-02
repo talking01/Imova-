@@ -7,7 +7,7 @@ import { getUser } from './auth.js';
 import { copyLink, shareLink, downloadImages, propertyUrl } from './sharing.js';
 import { deleteProperty, setPinned, fetchPinned } from './properties.js';
 import { setLike, setFavorite } from './likes.js';
-import { track } from './interests.js';
+import { track, dislike } from './interests.js';
 import { openReport } from './reports.js';
 import { esc, timeAgo, compact, toast, explainError } from './utils.js';
 import { isReady } from './pages.js';
@@ -188,6 +188,7 @@ export function createPostCard(property, author = {}, opts = {}) {
     items.push({ icon: 'download', label: 'Enregistrer les images', onClick: () => downloadImages(media, 'imova') });
     if (!own) items.push({ icon: 'message', label: "Discuter de l'annonce", onClick: discuss });
     items.push({ icon: 'link', label: 'Copier le lien', onClick: () => copyLink(url) });
+    if (!own && !preview) items.push({ icon: 'eyeOff', label: 'Pas intéressé', onClick: () => { dislike(property); el.remove(); toast('Nous vous proposerons moins d\'annonces comme celle-ci'); } });
     if (!own) items.push({ icon: 'flag', label: 'Signaler cette annonce', danger: true, onClick: () => openReport({ targetType: 'property', targetId: property.id, targetUserId: property.authorId }) });
     openSheet(items);
   }

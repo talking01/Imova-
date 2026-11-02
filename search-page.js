@@ -1,7 +1,9 @@
 // Imova — search-page.js : page search.html
 // Onglets : Tout (annonces + agences + particuliers en même temps), Annonces, Agences, Particuliers.
 import { searchProperties, searchProfiles, recentSearches, rememberSearch, forgetSearch } from './search.js';
-import { getProfile, topTokens, track } from './interests.js';
+import { getProfile, topTokens, trackSearch } from './interests.js';
+import { ensureRecommendations } from './recommend.js';
+import { getUser } from './auth.js';
 import { loadAuthors } from './properties.js';
 import { getLikedSet, getFavoriteIds } from './likes.js';
 import { whenReady } from './auth.js';
@@ -55,6 +57,19 @@ function showIdle() {
     ${!interests.length && !recents.length ? emptyState({ iconName: 'search', title: 'Que cherchez-vous ?', text: HINTS[tab] }) : ''}
     ${tab === 'agence' || tab === 'all' ? `<p class="form-links" style="margin-top:14px"><a href="agencies.html">Voir toutes les agences</a></p>` : ''}`;
   hydrateIcons(idle);
+  loadSuggested();
+}
+
+// Recherches suggérées, calculées à partir de vos actions et préférences et enregistrées dans votre compte
+async function loadSuggested() {
+  const me = getUser();
+  if (!me) return;
+  try {
+    const doc = await ensureRecommendations(me);
+    if (!doc || !doc.searches || !doc.searches.length || idle.querySelector('#suggested')) return;
+    idle.insertAdjacentHTML('afterbegin', `<div id="suggested"><h3 class="section-title">Suggestions pour vous</h3><div class="chips">${doc.searches.slice(0, 6).map((s) => `<button class="chip" data-q="${esc(s.q)}" title="${esc(s.reason)}">${icon('star', 14)} ${esc(s.q)}</button>`).join('')}</div></div>`);
+    hydrateIcons(idle);
+  } catch (e) { /* facultatif */ }
 }
 
 async function loadStates(ids) {
@@ -110,7 +125,7 @@ async function search(q, remember = false) {
     const limited = tab === 'all';
     const total = propsRes.items.length + (tab === 'agence' || tab === 'all' ? agencies.length : 0) + (tab === 'particulier' || tab === 'all' ? particuliers.length : 0);
     if (remember && total) rememberSearch(text);
-    if (propsRes.items.length) track('search', { tokens: propsRes.words });
+    if (propsRes.items.length) trackSearch(text, propsRes.words);
     if (!total) {
       results.innerHTML = emptyState({ iconName: 'search', title: 'Aucun résultat', text: tab === 'agence' ? 'Aucune agence ne commence par ces lettres.' : tab === 'particulier' ? 'Aucun particulier ne commence par ces lettres.' : 'Essayez un autre mot, ou un mot plus simple (maison, terrain, location...).' });
       hydrateIcons(results);

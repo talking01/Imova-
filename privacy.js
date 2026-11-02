@@ -3,13 +3,17 @@ import { whenReady } from './auth.js';
 import { loginUrl } from './guards.js';
 import { getUserDoc } from './users.js';
 import { getPrefs, savePrefs, savePublic } from './settings.js';
-import { changePassword, changeEmail, changeName, nameChangeInfo, exportMyData, downloadJson, deleteMyAccount } from './account.js';
+import { changePassword, changeEmail, nameChangeInfo, exportMyData, downloadJson, deleteMyAccount } from './account.js';
+import { getPrivate, createPrivate, updatePrivate, toForm } from './personal.js';
+import { GENDERS, COUNTRIES, normalizePhone, birthDateLimits, ageOf, properName, fullNameOf, genderLabel, dateToIso, emailToPhone, isPhoneEmail, publicNameOf } from './identity.js';
+import { checkPersonName, checkBirthDate, checkEmail as checkMail } from './validation.js';
+import { setPersonalization, resetInterests } from './interests.js';
+import { forgetRecommendations } from './recommend.js';
 import { getBlockedIds, unblockUser } from './messaging.js';
 import { loadAuthors } from './properties.js';
 import { listAccounts, removeAccount, getAccount } from './accounts.js';
 import { activeSlot, signOutSlot, isConfigured } from './firebase.js';
 import { logout, authMessage } from './auth.js';
-import { resetInterests } from './interests.js';
 import { supported, permission, requestPermission, registerSW, showBrowserNotification } from './notify.js';
 import { SUPPORT_UID, supportReady } from './app-config.js';
 import { openModal } from './modal.js';
@@ -22,7 +26,7 @@ const main = document.getElementById('main');
 document.getElementById('pageHeader').innerHTML = pageHeader('Confidentialité');
 bindBack();
 
-let me, u, prefs, blocked = [];
+let me, u, prefs, blocked = [], priv = null;
 const fmt = (d) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 const sw = (attr, on, label) => `<button type="button" class="switch ${on ? 'on' : ''}" ${attr} role="switch" aria-checked="${on}" aria-label="${esc(label)}"></button>`;
 const row = (title, sub, control, cls = '') => `<div class="set-row ${cls}"><span class="txt"><strong>${title}</strong>${sub ? `<small>${sub}</small>` : ''}</span>${control}</div>`;
@@ -41,16 +45,34 @@ function browserBlock() {
     </div>`;
 }
 
+function personalBlock() {
+  if (!priv) {
+    return `<div class="set-row"><span class="txt"><strong>Informations à compléter</strong><small>Votre compte a été créé avant l'ajout de ces informations (nom complet, sexe, date de naissance, contact). Complétez-les : elles restent privées.</small></span><button class="btn btn-primary" data-act="personal">Compléter</button></div>`;
+  }
+  const agency = priv.accountType === 'agence';
+  const age = ageOf(dateToIso(priv.birthDate));
+  return `
+    ${agency ? row("Nom de l'agence", esc(priv.agencyName || u.name || ''), '') : ''}
+    ${row(agency ? "Responsable de l'agence" : 'Nom complet', esc(fullNameOf(priv)), '')}
+    ${row('Sexe', esc(genderLabel(priv.gender)), '')}
+    ${row('Date de naissance', `${esc(new Date(dateToIso(priv.birthDate) + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }))}${age !== null ? ` (${age} ans)` : ''}`, '')}
+    ${row('Téléphone', esc(priv.phone || '—'), '')}
+    ${row('E-mail de contact', esc(priv.email || '—'), '')}
+    <div class="set-row"><span class="txt"><small>Ces informations sont privées : seuls vous et l'équipe Imova les voient.</small></span><button class="btn btn-primary" data-act="personal">Modifier</button></div>`;
+}
+
 function render() {
   const nc = nameChangeInfo(u);
   const accounts = listAccounts();
   const active = activeSlot();
   const email = (getAccount(active) || {}).email || me.email || '';
+  const loginLabel = isPhoneEmail(email) ? emailToPhone(email) : email;
   main.innerHTML = `
+    ${section('personnel', 'Informations personnelles', personalBlock())}
     ${section('compte', 'Compte', `
-      ${row('Nom', nc.allowed ? 'Votre nom public. Modifiable une fois tous les 30 jours.' : nc.reason === 'verified' ? 'Votre profil est vérifié : pour changer de nom, contactez le support.' : `Prochain changement possible le ${fmt(nc.next)}.`,
-        nc.reason === 'verified' ? `<a class="btn btn-ghost" href="${supportReady ? `chat.html?with=${encodeURIComponent(SUPPORT_UID)}` : 'help.html'}">Support</a>` : `<button class="btn btn-ghost" data-act="name" ${nc.allowed ? '' : 'disabled'}>${esc(u.name || '')} · Modifier</button>`)}
-      ${row('Adresse e-mail', esc(email), '<button class="btn btn-ghost" data-act="email">Modifier</button>')}
+      ${row('Nom affiché sur votre profil', esc(u.name || '') + (nc.allowed ? '' : nc.reason === 'verified' ? ' · profil vérifié : changement via le support' : ` · prochain changement possible le ${fmt(nc.next)}`), '')}
+      ${row('Identifiant de connexion', esc(loginLabel), '')}
+      ${isPhoneEmail(email) ? '' : row('Adresse e-mail de connexion', esc(email), '<button class="btn btn-ghost" data-act="email">Modifier</button>')}
       ${row('Mot de passe', 'Choisissez un mot de passe long et unique.', '<button class="btn btn-ghost" data-act="password">Modifier</button>')}`)}
     ${section('visibilite', 'Visibilité', `
       ${row('Afficher mon statut', "« en ligne » et « vu à 14:32 » dans les conversations.", sw('data-pub="showStatus"', u.showStatus !== false, 'Afficher mon statut'))}
@@ -69,9 +91,13 @@ function render() {
       ${row('Annonces des profils suivis', '', sw('data-pref="notif.followedPosts"', prefs.notif.followedPosts, 'Annonces des profils suivis'))}
       <p class="muted" style="font-size:.82rem;padding:10px 0">Les décisions de l'équipe (badge, modération) s'affichent toujours.</p>
       ${browserBlock()}`)}
+    ${section('recommandations', 'Recommandations', `
+      ${row('Personnaliser mes recommandations', "Imova retient ce que vous aimez, suivez et recherchez pour vous proposer des annonces et des profils adaptés. Ces données sont privées.", sw('data-pref="personalization"', prefs.personalization !== false, 'Personnalisation'))}
+      ${row('Mes préférences', 'Types de biens, quartiers, mots-clés, et ce qu\'Imova a retenu.', '<a class="btn btn-ghost" href="preferences.html">Ouvrir</a>')}
+      ${row('Effacer mes données de recommandation', 'Supprime le profil d\'intérêts et les recommandations enregistrés.', '<button class="btn btn-ghost" data-act="erase-reco" style="color:var(--danger)">Effacer</button>')}`)}
     ${section('appareil', 'Cet appareil', `
       ${row('Mode sombre', '', sw('data-act="theme"', getTheme() === 'dark', 'Mode sombre'))}
-      ${accounts.map((a) => `<div class="set-row" data-slot="${esc(a.slot)}"><span class="txt"><strong>${esc(a.name || a.email || 'Compte')}${verifiedMark(a.verified, 14)}</strong><small>${esc(a.email || '')}${a.slot === active ? ' · compte actif' : ''}</small></span>${a.slot === active ? '<button class="btn btn-ghost" data-act="logout">Se déconnecter</button>' : '<button class="btn btn-ghost" data-act="forget">Oublier</button>'}</div>`).join('')}
+      ${accounts.map((a) => `<div class="set-row" data-slot="${esc(a.slot)}"><span class="txt"><strong>${esc(a.name || a.email || 'Compte')}${verifiedMark(a.verified, 14)}</strong><small>${esc(a.loginLabel || a.email || '')}${a.slot === active ? ' · compte actif' : ''}</small></span>${a.slot === active ? '<button class="btn btn-ghost" data-act="logout">Se déconnecter</button>' : '<button class="btn btn-ghost" data-act="forget">Oublier</button>'}</div>`).join('')}
       ${row('Effacer mes recommandations', 'Oublier ce qui m\'intéresse (stocké sur cet appareil).', '<button class="btn btn-ghost" data-act="reset-reco">Effacer</button>')}
       ${row('Effacer l\'historique de recherche', '', '<button class="btn btn-ghost" data-act="reset-search">Effacer</button>')}
       ${row('Effacer les brouillons de messages', '', '<button class="btn btn-ghost" data-act="reset-drafts">Effacer</button>')}`)}
@@ -89,7 +115,7 @@ const setPath = (o, path, v) => { const [a, b] = path.split('.'); if (b) o[a][b]
 async function savePref(path, val) {
   const before = JSON.parse(JSON.stringify(prefs));
   setPath(prefs, path, val);
-  try { prefs = await savePrefs(me.uid, prefs); toast('Réglage enregistré'); } catch (e) { console.error(e); prefs = before; toast(explainError(e)); }
+  try { prefs = await savePrefs(me.uid, prefs); if (path === 'personalization') setPersonalization(prefs.personalization !== false); toast('Réglage enregistré'); } catch (e) { console.error(e); prefs = before; toast(explainError(e)); }
   render();
 }
 async function savePub(field, val) {
@@ -104,18 +130,48 @@ const err = (el, msg) => { const e = el.querySelector('#fErr'); e.textContent = 
 const errHtml = '<p class="error" id="fErr" hidden></p>';
 const field = (id, label, type = 'text', extra = '') => `<div class="field" style="margin-bottom:12px"><label for="${id}">${label}</label><input class="input" id="${id}" type="${type}" ${extra}></div>`;
 
-function modalName() {
+function modalPersonal() {
+  const create = !priv;
+  const agency = u.type === 'agence';
+  const f = create ? { firstName: '', lastName: '', postName: '', gender: '', birthDate: '', phone: '', email: '', agencyName: u.name || '' } : toForm(priv);
+  if (create && !agency) { const parts = String(u.name || '').split(/\s+/); f.firstName = parts[0] || ''; f.lastName = parts.slice(1).join(' '); }
+  const locked = u.verified === true;
+  const nc = nameChangeInfo(u);
+  const nameLocked = !create && !nc.allowed;
+  const { min, max } = birthDateLimits();
+  const dis = (b) => (b ? 'disabled' : '');
+  const g = GENDERS.map(([v, l]) => `<label><input type="radio" name="pgender" value="${v}" ${f.gender === v ? 'checked' : ''}><span>${l}</span></label>`).join('');
+  const countries = COUNTRIES.map(([d, n]) => `<option value="${d}">${esc(n)} (${d})</option>`).join('');
   openModal({
-    title: 'Changer de nom',
-    html: `<p class="muted" style="margin-bottom:10px">Vous ne pourrez plus changer de nom pendant 30 jours.</p>${field('fName', 'Nouveau nom', 'text', `maxlength="60" value="${esc(u.name || '')}" autocomplete="name"`)}${errHtml}`,
+    title: create ? 'Compléter mes informations' : 'Modifier mes informations',
+    html: `${locked ? '<p class="muted" style="margin-bottom:10px">Votre profil est vérifié : le nom ne peut être modifié que par le support.</p>' : nameLocked ? `<p class="muted" style="margin-bottom:10px">Le nom affiché ne peut être modifié qu'une fois tous les 30 jours (prochain changement : ${esc(nc.next ? fmt(nc.next) : '')}).</p>` : ''}
+      ${agency ? field('pAgency', "Nom de l'agence (affiché sur le profil)", 'text', `maxlength="60" value="${esc(f.agencyName)}" ${dis(locked || nameLocked)}`) : ''}
+      <div class="form-grid two" style="margin-bottom:12px">${field('pLast', 'Nom', 'text', `maxlength="60" value="${esc(f.lastName)}" ${dis(locked || (!agency && nameLocked))}`)}${field('pPost', 'Post-nom', 'text', `maxlength="60" value="${esc(f.postName)}" ${dis(locked)}`)}</div>
+      ${field('pFirst', 'Prénom', 'text', `maxlength="60" value="${esc(f.firstName)}" ${dis(locked || (!agency && nameLocked))}`)}
+      <div class="field" style="margin-bottom:12px"><label>Sexe</label><div class="seg2">${g}</div></div>
+      ${field('pBirth', 'Date de naissance', 'date', `min="${min}" max="${max}" value="${esc(f.birthDate)}"`)}
+      <div class="field" style="margin-bottom:12px"><label for="pPhone">Téléphone</label><div class="phone-row"><select class="select" id="pDial" aria-label="Pays">${countries}</select><input class="input" id="pPhone" type="tel" inputmode="tel" maxlength="20" value="${esc(f.phone)}"></div></div>
+      ${field('pMail', 'E-mail de contact', 'email', `maxlength="200" value="${esc(f.email)}" autocapitalize="none"`)}
+      ${create ? '<label class="check-row" style="margin-bottom:10px"><input type="checkbox" id="pConsent"><span>J\'accepte les <a href="policy.html#conditions" target="_blank" rel="noopener">conditions d\'utilisation</a> et la <a href="policy.html#confidentialite" target="_blank" rel="noopener">politique de confidentialité</a>.</span></label>' : ''}
+      ${errHtml}`,
     actions: [{ label: 'Annuler' }, { label: 'Enregistrer', primary: true, onClick: async (el) => {
-      const name = clean(el.querySelector('#fName').value, 60);
-      if (name.length < 2) return err(el, 'Le nom doit contenir au moins 2 caractères.');
-      if (name === u.name) return true;
-      try { await changeName(me.uid, name); u = await getUserDoc(me.uid); toast('Nom modifié'); render(); } catch (e) { console.error(e); return err(el, e.code === 'permission-denied' ? "Changement refusé : un changement de nom est possible une fois tous les 30 jours, et pas pour un profil vérifié." : explainError(e)); }
+      const val = (id) => el.querySelector('#' + id).value;
+      const d = { lastName: properName(val('pLast')), postName: properName(val('pPost')), firstName: properName(val('pFirst')), gender: (el.querySelector('input[name=pgender]:checked') || {}).value || '', birthDate: val('pBirth'), email: clean(val('pMail'), 200).toLowerCase(), phone: '', agencyName: agency ? clean(val('pAgency'), 60) : '' };
+      const phoneRaw = val('pPhone').trim();
+      if (phoneRaw) { d.phone = normalizePhone(phoneRaw, val('pDial')); if (!d.phone) return err(el, 'Numéro de téléphone invalide.'); }
+      const bad = checkPersonName(d.lastName, 'Nom') || checkPersonName(d.postName, 'Post-nom') || checkPersonName(d.firstName, 'Prénom') || checkBirthDate(d.birthDate) || (!d.gender ? 'Indiquez votre sexe.' : '') || (d.email ? checkMail(d.email) : '') || (agency && d.agencyName.length < 2 ? "Indiquez le nom de l'agence." : '') || (!d.phone && !d.email ? 'Indiquez au moins un téléphone ou un e-mail de contact.' : '');
+      if (bad) return err(el, bad);
+      if (create && !el.querySelector('#pConsent').checked) return err(el, 'Acceptez les politiques pour continuer.');
+      try {
+        if (create) { await createPrivate(me.uid, u, d, loginLabel0()); } else { await updatePrivate(me.uid, priv, u, d); }
+        priv = await getPrivate(me.uid); u = await getUserDoc(me.uid);
+        toast('Informations enregistrées'); render();
+      } catch (e) { console.error(e); return err(el, e.code === 'permission-denied' ? "Enregistrement refusé : profil vérifié (nom verrouillé), changement de nom trop récent, ou règles Firestore pas à jour." : explainError(e)); }
     } }]
   });
 }
+const loginLabel0 = () => { const e = (getAccount(activeSlot()) || {}).email || me.email || ''; return e; };
+
 function modalPassword() {
   openModal({
     title: 'Changer le mot de passe',
@@ -166,7 +222,8 @@ main.addEventListener('click', async (e) => {
   const b = e.target.closest('[data-act]');
   if (!b) return;
   switch (b.dataset.act) {
-    case 'name': modalName(); break;
+    case 'personal': modalPersonal(); break;
+    case 'erase-reco': openModal({ title: 'Effacer mes données de recommandation ?', html: '<p class="muted">Le profil d\'intérêts et les recommandations enregistrés seront supprimés. Imova recommencera à apprendre à partir de vos prochaines actions.</p>', actions: [{ label: 'Annuler' }, { label: 'Effacer', danger: true, onClick: async () => { try { await resetInterests(me.uid); forgetRecommendations(); toast('Données de recommandation effacées'); } catch (x) { toast(explainError(x)); return false; } } }] }); break;
     case 'password': modalPassword(); break;
     case 'email': modalEmail(); break;
     case 'delete': modalDelete(); break;
@@ -217,6 +274,7 @@ main.addEventListener('change', (e) => {
   if (!me) { location.replace(loginUrl()); return; }
   try {
     [u, prefs] = await Promise.all([getUserDoc(me.uid), getPrefs(me.uid, { force: true })]);
+    try { priv = await getPrivate(me.uid); } catch (e) { priv = null; }
     const ids = [...(await getBlockedIds(me.uid, { force: true }))];
     const a = ids.length ? await loadAuthors(ids) : new Map();
     blocked = ids.map((id) => ({ id, name: (a.get(id) || {}).name || 'Utilisateur' }));

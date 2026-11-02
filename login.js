@@ -4,7 +4,8 @@
 import { useSlot, isConfigured } from './firebase.js';
 import { nextFreeSlot } from './accounts.js';
 import { login, whenReady, getUser, authMessage } from './auth.js';
-import { checkEmail, checkPassword, setFieldError, setFormError } from './validation.js';
+import { setFieldError, setFormError } from './validation.js';
+import { identifierToLogin, COUNTRIES, isPhoneEmail, emailToPhone } from './identity.js';
 import { hydrateIcons } from './icons.js';
 import { param, clean } from './utils.js';
 
@@ -25,7 +26,15 @@ const password = document.getElementById('password');
 const submit = document.getElementById('submit');
 const keep = `${add ? 'add=1&' : ''}next=${encodeURIComponent(next)}`;
 document.getElementById('registerLink').href = `register.html?${keep}`;
-if (param('email')) email.value = clean(param('email'), 200);
+const pre = param('email') || param('id');
+if (pre) email.value = isPhoneEmail(pre) ? emailToPhone(pre) : clean(pre, 200);
+
+// Numéro de téléphone : on propose l'indicatif du pays tant que la saisie n'est pas une adresse e-mail
+const dial = document.getElementById('dial');
+dial.innerHTML = COUNTRIES.map(([d, n]) => `<option value="${d}">${n} (${d})</option>`).join('');
+const syncDial = () => { const v = email.value.trim(); dial.hidden = !v || v.includes('@') || v.startsWith('+') || v.startsWith('00'); };
+email.addEventListener('input', syncDial);
+syncDial();
 if (slotParam && param('email')) setFormError('Votre session a expiré. Saisissez votre mot de passe pour vous reconnecter.', 'info');
 if (add) document.getElementById('subtitle').textContent = 'Ajoutez un autre compte sur cet appareil.';
 
@@ -47,7 +56,7 @@ if (!isConfigured) {
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   setFormError('');
-  const errE = checkEmail(email.value);
+  const errE = identifierToLogin(email.value, dial.value) ? '' : 'Saisissez une adresse e-mail ou un numéro de téléphone valide.';
   const errP = password.value ? '' : 'Saisissez votre mot de passe.';
   setFieldError(email, errE);
   setFieldError(password, errP);
@@ -55,7 +64,7 @@ form.addEventListener('submit', async (e) => {
   submit.disabled = true;
   submit.textContent = 'Connexion...';
   try {
-    await login({ email: clean(email.value, 200), password: password.value });
+    await login({ identifier: clean(email.value, 200), dial: dial.value, password: password.value });
     location.replace(next);
   } catch (err) {
     setFormError(authMessage(err));

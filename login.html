@@ -21,8 +21,9 @@
       <p class="muted" id="subtitle">Heureux de vous revoir.</p>
       <form class="form card" id="form" novalidate>
         <div class="field">
-          <label for="email">Adresse e-mail</label>
-          <input class="input" id="email" name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false">
+          <label for="email">Adresse e-mail ou numéro de téléphone</label>
+          <input class="input" id="email" name="email" type="text" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" placeholder="nom@exemple.com ou 081 234 5678">
+          <select class="select" id="dial" aria-label="Pays du numéro" hidden style="margin-top:8px"></select>
         </div>
         <div class="field">
           <label for="password">Mot de passe</label>

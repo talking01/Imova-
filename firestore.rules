@@ -1,6 +1,7 @@
 rules_version = '2';
-// RÈGLES — Phase 3, étape 7 (annonces, J'aime, favoris, profils, abonnements, avis, messagerie, badge de vérification,
-// statistiques, administration avec rôles, NOTIFICATIONS, CONFIDENTIALITÉ et réglages personnels).
+// RÈGLES — Phase 3, étape 8 (annonces, J'aime, favoris, profils, abonnements, avis, messagerie, badge de vérification,
+// statistiques, administration avec rôles, notifications, confidentialité, INFORMATIONS PERSONNELLES privées,
+// INTÉRÊTS et RECOMMANDATIONS de chaque compte).
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -57,13 +58,45 @@ service cloud.firestore {
         || exists(adminPath(other));
     }
     function validPrefs(p) {
-      return p.keys().hasOnly(['readReceipts', 'typingIndicator', 'notif', 'browser', 'updatedAt'])
+      return p.keys().hasOnly(['personalization', 'readReceipts', 'typingIndicator', 'notif', 'browser', 'updatedAt'])
+        && p.get('personalization', true) is bool
         && p.readReceipts is bool && p.typingIndicator is bool
         && p.notif is map && p.notif.keys().hasOnly(['messages', 'follows', 'likes', 'reviews', 'followedPosts'])
         && p.notif.get('messages', true) is bool && p.notif.get('follows', true) is bool && p.notif.get('likes', true) is bool
         && p.notif.get('reviews', true) is bool && p.notif.get('followedPosts', true) is bool
         && p.browser is map && p.browser.keys().hasOnly(['enabled', 'messages', 'activity'])
         && p.browser.get('enabled', false) is bool && p.browser.get('messages', true) is bool && p.browser.get('activity', true) is bool;
+    }
+    // Âge : au moins 18 ans révolus à la date de la demande (contrôlé par la base, pas seulement par la page)
+    function ageOk(b) {
+      return request.time.year() - b.year() > 18
+        || (request.time.year() - b.year() == 18
+            && (request.time.month() > b.month() || (request.time.month() == b.month() && request.time.day() >= b.day())));
+    }
+    function validPerson(d) {
+      return d.firstName is string && d.firstName.size() >= 2 && d.firstName.size() <= 60
+        && d.lastName is string && d.lastName.size() >= 2 && d.lastName.size() <= 60
+        && d.postName is string && d.postName.size() >= 2 && d.postName.size() <= 60
+        && d.gender in ['F', 'M']
+        && d.birthDate is timestamp && ageOk(d.birthDate)
+        && d.email is string && d.email.size() <= 200
+        && d.phone is string && d.phone.size() <= 20
+        && (d.email.size() > 0 || d.phone.size() > 0)
+        && d.searchKeys is list && d.searchKeys.size() <= 6
+        && (d.accountType != 'agence' || (d.agencyName is string && d.agencyName.size() >= 2 && d.agencyName.size() <= 60));
+    }
+    function validInterests(d) {
+      return d.keys().hasOnly(['tokens', 'concepts', 'authors', 'negTokens', 'negAuthors', 'hidden', 'searches', 'preferences', 'signals', 'updatedAt'])
+        && d.tokens is map && d.tokens.size() <= 300
+        && d.concepts is map && d.concepts.size() <= 60
+        && d.authors is map && d.authors.size() <= 150
+        && d.negTokens is map && d.negTokens.size() <= 150
+        && d.negAuthors is map && d.negAuthors.size() <= 150
+        && d.hidden is list && d.hidden.size() <= 400
+        && d.searches is list && d.searches.size() <= 40
+        && d.preferences is map
+        && d.signals is number
+        && d.updatedAt == request.time;
     }
     // un compte suspendu ne peut plus publier, écrire, suivre ni noter
     function notSuspended() { return !get(userPath(request.auth.uid)).data.get('suspended', false); }
@@ -633,6 +666,53 @@ service cloud.firestore {
       allow create, update: if signedIn() && request.auth.uid == uid
         && validPrefs(request.resource.data)
         && request.resource.data.updatedAt == request.time;
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ───────── Informations personnelles PRIVÉES (identité, sexe, date de naissance, contact, consentement)
+    // Lisibles seulement par le propriétaire et par les administrateurs (jamais par les modérateurs ni les autres utilisateurs).
+    match /userPrivate/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['accountType', 'firstName', 'lastName', 'postName', 'gender', 'birthDate', 'loginType', 'loginId', 'email', 'phone', 'searchKeys', 'agencyName', 'consent', 'createdAt', 'updatedAt'])
+        && request.resource.data.accountType == getAfter(userPath(uid)).data.type
+        && request.resource.data.loginType in ['email', 'phone']
+        && request.resource.data.loginId is string && request.resource.data.loginId.size() <= 120
+        && validPerson(request.resource.data)
+        && request.resource.data.consent.keys().hasOnly(['acceptedAt', 'version'])
+        && request.resource.data.consent.acceptedAt == request.time
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['firstName', 'lastName', 'postName', 'gender', 'birthDate', 'email', 'phone', 'searchKeys', 'agencyName', 'updatedAt'])
+        && validPerson(request.resource.data)
+        && request.resource.data.updatedAt == request.time
+        && (get(userPath(uid)).data.verified == false
+            || (request.resource.data.firstName == resource.data.firstName
+                && request.resource.data.lastName == resource.data.lastName
+                && request.resource.data.postName == resource.data.postName
+                && request.resource.data.get('agencyName', '') == resource.data.get('agencyName', '')));
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ───────── Recommandations : intérêts appris de chaque compte, et recommandations calculées (privés)
+    match /userInterests/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid && validInterests(request.resource.data);
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+    match /recommendations/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['version', 'properties', 'profiles', 'searches', 'basedOn', 'computedAt'])
+        && request.resource.data.properties is list && request.resource.data.properties.size() <= 100
+        && request.resource.data.profiles is list && request.resource.data.profiles.size() <= 40
+        && request.resource.data.searches is list && request.resource.data.searches.size() <= 20
+        && request.resource.data.basedOn is map
+        && request.resource.data.computedAt == request.time;
       allow delete: if signedIn() && request.auth.uid == uid;
     }
 
