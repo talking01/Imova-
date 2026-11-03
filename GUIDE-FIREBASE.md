@@ -122,6 +122,26 @@ Ensuite, le propriétaire ajoute ou retire des membres lui-même dans **Administ
    - Sur **iPhone**, elles ne fonctionnent que si Imova est installée sur l'écran d'accueil (iOS 16.4 et plus).
    - Pour des notifications **application fermée** (« push »), il faut en plus : Firebase Cloud Messaging, une clé « VAPID » (Paramètres du projet → Cloud Messaging), des **Cloud Functions** qui envoient les notifications, et donc le **plan Blaze** (avec carte bancaire, et un budget gratuit généreux au départ). Ce n'est pas inclus : on peut l'ajouter plus tard si tu le souhaites.
 
+### A11 ter. Inscription, informations personnelles et recommandations : ce qu'il faut configurer
+1. **Règles Firestore** : publier le nouveau `firestore.rules` (A7). **Obligatoire** : il ajoute trois collections privées (`userPrivate` : identité, sexe, date de naissance, contact ; `userInterests` : ce que chaque compte aime ; `recommendations` : les recommandations de chaque compte) et le contrôle de l'âge (18 ans) fait par la base elle-même.
+2. **Authentication** : rien à changer. Le fournisseur « E-mail / Mot de passe » (A5) sert aussi aux comptes créés avec un **numéro de téléphone** (le numéro est converti en identifiant technique, sans SMS, donc gratuit).
+   - Limites : le numéro n'est **pas vérifié** par SMS, et un compte « téléphone » n'a pas d'e-mail : pas de réinitialisation du mot de passe par e-mail.
+   - Pour vérifier les numéros par SMS (et réinitialiser par SMS), il faudrait l'authentification par téléphone de Firebase : elle demande le plan Blaze (carte bancaire) et les SMS sont payants. Non inclus.
+3. **Aucun nouvel index** à créer.
+4. **Comptes déjà créés** : ils n'ont pas encore d'informations personnelles. Chaque utilisateur est invité à les compléter dans Menu → Confidentialité ; dans l'administration, ils apparaissent « non renseignées ».
+5. **Quota gratuit (Spark)** : le calcul des recommandations lit une centaine de documents, **une fois toutes les 25 minutes au plus** par utilisateur actif ; ensuite l'accueil relit seulement les annonces affichées (≈ 10 lectures). Le profil d'intérêts s'écrit au plus toutes les 25 secondes pendant l'utilisation. Surveille l'onglet « Utilisation » de Firestore.
+6. **Politiques** : `policy.html` est une **version provisoire** (conditions d'utilisation et politique de confidentialité) à faire relire par un juriste avant le lancement.
+
+### A11 quater. Badge payant, documents et QR code : ce qu'il faut configurer
+1. **Règles Firestore** : publier le nouveau `firestore.rules` (A7). **Obligatoire** : il ajoute le dossier de vérification (pièce d'identité, document de l'agence, adresse), la durée du badge (`verifiedUntil`), le retrait automatique à la fin et les prix du badge.
+2. **Cloudinary** (B3) : le preset doit autoriser les **images** et les **PDF** (formats `jpg, png, webp, pdf` déjà listés). Les pièces d'identité sont envoyées vers le même espace que les autres médias.
+   - ⚠ Cloudinary gratuit ne propose pas de fichiers vraiment privés sans serveur : les documents sont protégés par un **lien difficile à deviner** (visible seulement dans la base — réservée au titulaire et à l'équipe — et dans la conversation avec le support). Conseille aux utilisateurs d'envoyer des photos nettes mais de masquer ce qui n'est pas utile.
+   - Les documents envoyés restent chez Cloudinary même si le compte est supprimé ; tu peux les retirer toi-même dans la console Cloudinary (Media Library).
+3. **Aucun nouvel index** à créer.
+4. **Prix** : par défaut 4 $ (1 mois), 12 $ (3 mois), 45 $ (1 an). Le propriétaire peut les changer dans **Administration → Paramètres → Prix du badge**.
+5. **Fin des badges** (sans serveur) : un badge dont la date de fin est passée **n'est plus affiché partout, immédiatement**. La base est mise à jour (badge retiré, titulaire prévenu) dès que le titulaire ouvre l'application, ou dès qu'un administrateur ouvre **Administration → Tableau de bord** (balayage de tous les badges expirés et rappels 7 jours avant la fin). Ouvre le tableau de bord de l'administration au moins une fois par jour. Un traitement 100 % automatique (même sans connexion de personne) demanderait une fonction planifiée (plan Blaze) : non inclus.
+6. **QR code** : rien à configurer. Il est créé dans l'application (aucun service externe) et l'adresse qu'il contient est celle de ton site.
+
 ### A12. Bonnes pratiques
 - Ne passe **jamais** Firestore en mode test, ne publie jamais de clé secrète.
 - Garde la validation en deux étapes sur le compte Google propriétaire.

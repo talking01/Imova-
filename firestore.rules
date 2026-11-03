@@ -1,5 +1,5 @@
 rules_version = '2';
-// RÈGLES — Phase 3, étape 8 (annonces, J'aime, favoris, profils, abonnements, avis, messagerie, badge de vérification,
+// RÈGLES — Phase 3, étape 9 (badge payant à durée, dossier de vérification avec documents ; étape 8 : annonces, J'aime, favoris, profils, abonnements, avis, messagerie, badge de vérification,
 // statistiques, administration avec rôles, notifications, confidentialité, INFORMATIONS PERSONNELLES privées,
 // INTÉRÊTS et RECOMMANDATIONS de chaque compte).
 service cloud.firestore {
@@ -107,17 +107,25 @@ service cloud.firestore {
     function pad2(n) { return n < 10 ? '0' + string(n) : string(n); }
     function dayString(t) { return string(t.year()) + pad2(t.month()) + pad2(t.day()); }
     function eventPath(eid) { return /databases/$(database)/documents/events/$(eid); }
-    function validVerifData(d) {
+    function cloudUrl(u) { return u is string && u.size() <= 400 && u.matches('https://res\\.cloudinary\\.com/.*'); }
+    // Dossier de vérification : pièce d'identité, adresse, et pour une agence le document officiel ou une justification
+    function validVerifData(d, t) {
       return d is map
-        && d.keys().hasOnly(['legalName', 'registrationNumber', 'idType', 'address', 'phone', 'website', 'activity', 'notes'])
-        && d.legalName is string && d.legalName.size() >= 2 && d.legalName.size() <= 120
-        && d.get('address', '').size() >= 2 && d.get('address', '').size() <= 200
-        && d.get('phone', '').size() >= 6 && d.get('phone', '').size() <= 30
-        && d.get('activity', '').size() >= 2 && d.get('activity', '').size() <= 400
-        && d.get('registrationNumber', '').size() <= 60
-        && d.get('idType', '').size() <= 40
+        && d.keys().hasOnly(['idType', 'idUrl', 'idKind', 'idName', 'orgUrl', 'orgKind', 'orgName', 'orgJustification', 'extraDocs', 'address', 'website', 'notes'])
+        && d.idType in ['carte_electeur', 'carte_identite', 'passeport', 'permis', 'autre']
+        && cloudUrl(d.idUrl)
+        && d.idKind in ['image', 'raw']
+        && d.get('idName', '').size() <= 200
+        && d.get('address', '').size() <= 250
         && d.get('website', '').size() <= 200
-        && d.get('notes', '').size() <= 400;
+        && d.get('notes', '').size() <= 400
+        && d.get('orgJustification', '').size() <= 600
+        && d.get('orgName', '').size() <= 200
+        && (!('orgUrl' in d) || (cloudUrl(d.orgUrl) && d.orgKind in ['image', 'raw']))
+        && d.get('extraDocs', []).size() <= 3
+        && (t == 'agence'
+            ? ((d.get('address', '').size() >= 5 || d.get('website', '').size() >= 4) && ('orgUrl' in d || d.get('orgJustification', '').size() >= 10))
+            : d.get('address', '').size() >= 5);
     }
 
     // Contenu d'une annonce : titre, description, 15 photos maximum, une vidéo maximum (adresse Cloudinary)
@@ -321,9 +329,19 @@ service cloud.firestore {
 
       // Administration : badge de vérification et suspension
       allow update: if isAdmin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['verified', 'suspended', 'suspendedReason'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['verified', 'verifiedUntil', 'verifiedPlan', 'suspended', 'suspendedReason'])
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['suspendedReason'])
-            || (request.resource.data.suspendedReason is string && request.resource.data.suspendedReason.size() <= 300));
+            || (request.resource.data.suspendedReason is string && request.resource.data.suspendedReason.size() <= 300))
+        && (!('verifiedUntil' in request.resource.data) || request.resource.data.verifiedUntil is timestamp)
+        && (!('verifiedPlan' in request.resource.data) || request.resource.data.verifiedPlan in ['m1', 'm3', 'y1']);
+
+      // Fin d'un badge : son titulaire (ou l'application à son ouverture) peut le retirer seulement si la date de fin est passée
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['verified'])
+        && request.resource.data.verified == false
+        && 'verifiedUntil' in resource.data
+        && resource.data.verifiedUntil < request.time;
 
       // Suppression d'un avis par l'équipe : la note disparaît du total
       allow update: if isStaff()
@@ -550,32 +568,39 @@ service cloud.firestore {
         && uid == request.auth.uid
         && notSuspended()
         && verificationOpen()
-        && request.resource.data.keys().hasOnly(['userId', 'accountType', 'data', 'status', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['userId', 'accountType', 'data', 'plan', 'price', 'status', 'createdAt', 'updatedAt'])
         && request.resource.data.userId == uid
         && request.resource.data.accountType in ['particulier', 'agence']
+        && request.resource.data.accountType == get(userPath(uid)).data.type
+        && request.resource.data.plan in ['m1', 'm3', 'y1']
+        && request.resource.data.price is number && request.resource.data.price >= 0 && request.resource.data.price <= 1000
         && request.resource.data.status == 'pending'
-        && validVerifData(request.resource.data.data)
+        && validVerifData(request.resource.data.data, request.resource.data.accountType)
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
-      // nouvelle demande après un refus ou un retrait du badge
+      // nouvelle demande après un refus ou un retrait, ou renouvellement d'un badge accordé (les documents restent au dossier)
       allow update: if signedIn()
         && uid == request.auth.uid
-        && resource.data.status in ['rejected', 'revoked']
+        && resource.data.status in ['rejected', 'revoked', 'approved']
         && notSuspended()
         && verificationOpen()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['data', 'status', 'updatedAt', 'reviewNote', 'reviewedBy', 'reviewedAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['data', 'plan', 'price', 'renewal', 'status', 'updatedAt', 'reviewNote', 'reviewedBy', 'reviewedAt'])
         && request.resource.data.status == 'pending'
-        && validVerifData(request.resource.data.data)
+        && request.resource.data.plan in ['m1', 'm3', 'y1']
+        && request.resource.data.price is number && request.resource.data.price >= 0 && request.resource.data.price <= 1000
+        && (resource.data.status != 'approved' || request.resource.data.renewal == true)
+        && validVerifData(request.resource.data.data, request.resource.data.accountType)
         && request.resource.data.updatedAt == request.time;
-      // décision de l'administration
+      // décision de l'administration (avec la durée accordée)
       allow update: if isAdmin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewNote', 'reviewedBy', 'reviewedAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewNote', 'reviewedBy', 'reviewedAt', 'grantedPlan', 'grantedUntil', 'renewal'])
         && request.resource.data.status in ['approved', 'rejected', 'revoked']
         && request.resource.data.reviewedBy == request.auth.uid
         && request.resource.data.reviewedAt == request.time
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['grantedPlan']) || request.resource.data.grantedPlan in ['m1', 'm3', 'y1'])
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['reviewNote'])
             || (request.resource.data.reviewNote is string && request.resource.data.reviewNote.size() <= 500));
-      allow delete: if signedIn() && uid == request.auth.uid && resource.data.status == 'pending';
+      allow delete: if signedIn() && uid == request.auth.uid && resource.data.status == 'pending' && !resource.data.get('renewal', false);
     }
 
     // ───────── Équipe d'administration : propriétaire, administrateur, modérateur
@@ -599,7 +624,7 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isOwnerRole()
         && id == 'main'
-        && request.resource.data.keys().hasOnly(['announcement', 'publishingEnabled', 'verificationOpen', 'updatedAt', 'updatedBy'])
+        && request.resource.data.keys().hasOnly(['announcement', 'publishingEnabled', 'verificationOpen', 'badgePrices', 'updatedAt', 'updatedBy'])
         && request.resource.data.publishingEnabled is bool
         && request.resource.data.verificationOpen is bool
         && request.resource.data.announcement is map
@@ -607,6 +632,12 @@ service cloud.firestore {
         && request.resource.data.announcement.enabled is bool
         && request.resource.data.announcement.text is string
         && request.resource.data.announcement.text.size() <= 200
+        && request.resource.data.badgePrices is map
+        && request.resource.data.badgePrices.keys().hasOnly(['m1', 'm3', 'y1'])
+        && request.resource.data.badgePrices.m1 is number && request.resource.data.badgePrices.m3 is number && request.resource.data.badgePrices.y1 is number
+        && request.resource.data.badgePrices.m1 >= 0 && request.resource.data.badgePrices.m1 <= 1000
+        && request.resource.data.badgePrices.m3 >= 0 && request.resource.data.badgePrices.m3 <= 1000
+        && request.resource.data.badgePrices.y1 >= 0 && request.resource.data.badgePrices.y1 <= 1000
         && request.resource.data.updatedAt == request.time
         && request.resource.data.updatedBy == request.auth.uid;
     }
@@ -653,6 +684,22 @@ service cloud.firestore {
           ||
           (request.resource.data.type in ['moderation', 'verification', 'system'] && isStaff())
         );
+      // rappel « votre badge expire bientôt » : créé par le titulaire lui-même, seulement dans les 8 jours avant la fin
+      allow create: if signedIn()
+        && uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['type', 'actorId', 'refId', 'title', 'body', 'link', 'read', 'createdAt'])
+        && request.resource.data.type == 'verification'
+        && request.resource.data.actorId == uid
+        && request.resource.data.read == false
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.link == 'badge.html'
+        && request.resource.data.title is string && request.resource.data.title.size() <= 120
+        && request.resource.data.body is string && request.resource.data.body.size() <= 200
+        && request.resource.data.refId is string && request.resource.data.refId.size() <= 200
+        && id.matches('badge_expiry_[0-9]+')
+        && 'verifiedUntil' in get(userPath(uid)).data
+        && get(userPath(uid)).data.verifiedUntil > request.time
+        && get(userPath(uid)).data.verifiedUntil <= request.time + duration.value(8, 'd');
       allow update: if signedIn()
         && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])

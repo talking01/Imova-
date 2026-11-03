@@ -1,5 +1,6 @@
 // Imova — properties.js : lecture des annonces (Firestore) et de leurs auteurs.
 import { firestore } from './firebase.js';
+import { isBadgeActive, untilMs } from './badge-rules.js';
 
 // Une annonce stocke « images » (15 max) et « video » (1 max). Pour l'affichage on les rassemble dans media[].
 // Seules les adresses Cloudinary sont affichées : une adresse venant d'ailleurs est ignorée (protection des lecteurs).
@@ -72,7 +73,9 @@ function fromSession(id) {
     const raw = sessionStorage.getItem('imova-author-' + id);
     if (!raw) return null;
     const { t, v } = JSON.parse(raw);
-    return Date.now() - t < TTL ? v : null;
+    if (Date.now() - t >= TTL) return null;
+    if (v && v.verifiedRaw !== undefined) v.verified = v.verifiedRaw && (!v.verifiedUntil || v.verifiedUntil > Date.now()); // la date de fin peut être passée depuis
+    return v;
   } catch (e) { return null; }
 }
 
@@ -88,7 +91,7 @@ export async function loadAuthors(ids) {
       const snap = await fs.m.getDoc(fs.m.doc(fs.db, 'users', id));
       if (snap.exists()) {
         const d = snap.data();
-        const v = { name: d.name || '', photoUrl: d.photoUrl || '', type: d.type || '', verified: !!d.verified };
+        const v = { name: d.name || '', photoUrl: d.photoUrl || '', type: d.type || '', verified: isBadgeActive(d), verifiedRaw: d.verified === true, verifiedUntil: untilMs(d) };
         memory.set(id, v);
         try { sessionStorage.setItem('imova-author-' + id, JSON.stringify({ t: Date.now(), v })); } catch (e) { /* plein */ }
       }

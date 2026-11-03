@@ -10,6 +10,7 @@ import { openRatingModal } from './rating-modal.js';
 import { uploadImage, checkImageFile, cloudinaryReady } from './cloudinary.js';
 import { sanitizeRich, openRichEditor } from './richtext.js';
 import { openModal, openSheet } from './modal.js';
+import { openQrCard } from './qr-card.js';
 import { openViewer, optimized } from './viewer.js';
 import { copyLink, shareLink, profileUrl } from './sharing.js';
 import { icon, hydrateIcons } from './icons.js';
@@ -332,6 +333,7 @@ function showMenu() {
   }
   items.push({ icon: 'link', label: 'Copier le lien', onClick: () => copyLink(url) });
   items.push({ icon: 'share', label: 'Partager', onClick: () => shareLink(state.u.name || 'Profil Imova', url) });
+  items.push({ icon: 'qr', label: 'QR code', onClick: () => openQrCard({ url, name: state.u.name || 'Profil Imova' }) });
   openSheet(items);
 }
 

@@ -15,6 +15,7 @@ import { loadRecs, saveRecs } from './reco-store.js';
 import { buildTokens } from './search.js';
 import { firestore } from './firebase.js';
 import { listFollowing } from './follows.js';
+import { withBadge } from './badge-rules.js';
 
 export const VERSION = 2;
 const POOL = { recent: 25, tokens: 15, prefs: 15, concepts: 12, authors: 15, social: 10 };
@@ -174,7 +175,7 @@ async function rankProfiles(me, ranked, social, following, prof) {
     top.docs.forEach((d) => { if (!cand.has(d.id) && d.id !== me.uid && !following.includes(d.id) && ids.length < 18) ids.push(d.id); });
   } catch (e) { /* facultatif */ }
   ids = [...new Set(ids)];
-  const users = (await Promise.all(ids.map(async (id) => { try { const s = await m.getDoc(m.doc(db, 'users', id)); return s.exists() ? { id, ...s.data() } : null; } catch (e) { return null; } }))).filter(Boolean);
+  const users = (await Promise.all(ids.map(async (id) => { try { const s = await m.getDoc(m.doc(db, 'users', id)); return s.exists() ? withBadge({ id, ...s.data() }) : null; } catch (e) { return null; } }))).filter(Boolean);
   return users.filter((u) => u.name && u.discoverable !== false && u.suspended !== true).map((u) => {
     const rel = byAuthor.get(u.id) || 0; const soc = social.get(u.id) || 0; const aff = prof.authors[u.id] || 0;
     const avg = u.ratingCount ? u.ratingSum / u.ratingCount : 0;
@@ -258,7 +259,7 @@ export async function suggestProfiles({ me = null, limit = 8 } = {}) {
     const doc = await ensureRecommendations(me).catch(() => null);
     if (doc && doc.profiles && doc.profiles.length) {
       const picks = doc.profiles.slice(0, limit + 4);
-      const users = (await Promise.all(picks.map(async (r) => { try { const s = await m.getDoc(m.doc(db, 'users', r.id)); return s.exists() ? { u: { id: r.id, ...s.data() }, reason: r.reason } : null; } catch (e) { return null; } }))).filter(Boolean);
+      const users = (await Promise.all(picks.map(async (r) => { try { const s = await m.getDoc(m.doc(db, 'users', r.id)); return s.exists() ? { u: withBadge({ id: r.id, ...s.data() }), reason: r.reason } : null; } catch (e) { return null; } }))).filter(Boolean);
       let following = new Set();
       try { following = new Set(await listFollowing(me.uid)); } catch (e) { /* ignoré */ }
       return users.filter(({ u }) => !following.has(u.id) && u.discoverable !== false).slice(0, limit);
@@ -267,7 +268,7 @@ export async function suggestProfiles({ me = null, limit = 8 } = {}) {
   let following = new Set();
   if (me) { try { following = new Set(await listFollowing(me.uid)); } catch (e) { /* ignoré */ } }
   const snap = await m.getDocs(m.query(m.collection(db, 'users'), m.orderBy('followersCount', 'desc'), m.limit(15)));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  return snap.docs.map((d) => withBadge({ id: d.id, ...d.data() }))
     .filter((u) => u.id !== (me && me.uid) && !following.has(u.id) && u.name && u.discoverable !== false)
     .map((u) => ({ u, reason: u.verified ? 'Profil vérifié' : 'Populaire sur Imova', s: Math.log1p(u.followersCount || 0) + (u.verified ? 1 : 0) }))
     .sort((a, b) => b.s - a.s).slice(0, limit).map(({ u, reason }) => ({ u, reason }));

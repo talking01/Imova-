@@ -3,6 +3,7 @@
 // (sans accents ni majuscules), et la recherche les compare, avec synonymes et singulier/pluriel, puis classe les résultats.
 import { fetchByTokens } from './properties.js';
 import { firestore } from './firebase.js';
+import { withBadge } from './badge-rules.js';
 
 const STOP = new Set(['le', 'la', 'les', 'un', 'une', 'des', 'du', 'de', 'et', 'en', 'au', 'aux', 'a', 'à', 'pour', 'avec', 'sur', 'dans', 'par', 'ou', 'qui', 'que', 'est', 'sont', 'ce', 'cet', 'cette', 'ces', 'son', 'sa', 'ses', 'il', 'elle', 'nous', 'vous', 'the', 'and', 'for']);
 
@@ -84,7 +85,7 @@ export async function searchProfiles(q) {
     m.collection(db, 'users'), m.where('nameLower', '>=', text), m.where('nameLower', '<=', text + '\uf8ff'), m.limit(40)
   ));
   // les profils qui ont désactivé « apparaître dans la recherche » ne sont pas listés
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((u) => u.discoverable !== false);
+  return snap.docs.map((d) => withBadge({ id: d.id, ...d.data() })).filter((u) => u.discoverable !== false);
 }
 
 // Recherches récentes (sur cet appareil)

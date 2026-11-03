@@ -1,3 +1,4 @@
+import { withBadge } from './badge-rules.js';
 // Imova — agencies.js : page agencies.html (annuaire des agences)
 import { firestore, isConfigured } from './firebase.js';
 import { pageHeader, bindBack, emptyState, skeletonCard, stars, average } from './components.js';
@@ -26,7 +27,7 @@ async function run() {
   try {
     const { m, db } = await firestore();
     const snap = await m.getDocs(m.query(m.collection(db, 'users'), m.where('type', '==', 'agence'), m.limit(60)));
-    const all = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((u) => u.name && u.discoverable !== false)
+    const all = snap.docs.map((d) => withBadge({ id: d.id, ...d.data() })).filter((u) => u.name && u.discoverable !== false)
       .sort((a, b) => (b.verified ? 1 : 0) - (a.verified ? 1 : 0) || (b.followersCount || 0) - (a.followersCount || 0) || average(b) - average(a));
     main.innerHTML = `
       <label class="sticky-search glass">${icon('search', 20)}<input id="f" type="search" placeholder="Filtrer par nom" autocomplete="off" aria-label="Filtrer les agences"></label>

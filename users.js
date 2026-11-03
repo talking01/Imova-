@@ -1,11 +1,12 @@
 // Imova — users.js : lecture et modification d'un profil (collection users)
 import { firestore } from './firebase.js';
+import { withBadge } from './badge-rules.js';
 
 export async function getUserDoc(id) {
   const fs = await firestore();
   if (!fs) return null;
   const snap = await fs.m.getDoc(fs.m.doc(fs.db, 'users', id));
-  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  return snap.exists() ? withBadge({ id: snap.id, ...snap.data() }) : null;
 }
 
 // Modifie UNIQUEMENT son propre profil (les règles Firestore l'imposent aussi)

@@ -2,6 +2,10 @@
 import { initAdmin, audit, fmtDate, fmtDateTime, pill, confirmAction } from './admin.js';
 import { normalizePhone, fullNameOf, genderLabel, ageOf, dateToIso, isPhoneEmail, emailToPhone } from './identity.js';
 import { openModal } from './modal.js';
+import { dossierHtml, grantModal, untilLabel } from './verif-view.js';
+import { isBadgeActive, isBadgeExpired, daysLeft, untilMs } from './badge-rules.js';
+import { planOf } from './badge-config.js';
+import { notify } from './notifs.js';
 import { icon, hydrateIcons } from './icons.js';
 import { esc, toast, explainError, compact } from './utils.js';
 import { emptyState } from './components.js';
@@ -67,7 +71,7 @@ function render() {
       <span class="avatar">${u.photoUrl ? `<img src="${esc(optimized(u.photoUrl, 100))}" alt="">` : esc((u.name || '?').trim().charAt(0).toUpperCase())}</span>
       <span class="grow"><strong>${esc(u.name || 'Utilisateur')}</strong><small>${u.type === 'agence' ? 'Agence' : 'Particulier'} · inscrit le ${esc(fmtDate(u.createdAt))} · ${compact(u.followersCount || 0)} abonnés</small>
         ${priv.get(u.id) ? `<small>${u.type === 'agence' ? 'Responsable : ' : ''}${esc(fullNameOf(priv.get(u.id)))} · ${esc(contactOf(priv.get(u.id)))}</small>` : '<small>Informations personnelles non renseignées</small>'}</span>
-      ${u.verified ? pill('Vérifié', 'ok') : ''}${u.suspended ? pill('Suspendu', 'bad') : ''}
+      ${isBadgeActive(u) ? pill('Vérifié', 'ok') : isBadgeExpired(u) ? pill('Badge expiré', 'warn') : ''}${u.suspended ? pill('Suspendu', 'bad') : ''}
     </button>`).join('')}</div>${more ? '<div class="more-wrap"><button class="btn btn-ghost" id="moreBtn">Voir plus</button></div>' : ''}`
     : emptyState({ iconName: 'users', title: 'Aucun résultat' });
   hydrateIcons(list);
@@ -117,7 +121,7 @@ function openUser(u) {
         <dt>Inscrit le</dt><dd>${esc(fmtDate(u.createdAt))}</dd>
         <dt>Abonnés</dt><dd>${compact(u.followersCount || 0)}</dd>
         <dt>Avis</dt><dd>${u.ratingCount ? `${(u.ratingSum / u.ratingCount).toFixed(1).replace('.', ',')} (${u.ratingCount})` : 'Aucun'}</dd>
-        <dt>Badge</dt><dd>${u.verified ? 'Vérifié' : 'Non vérifié'}</dd>
+        <dt>Badge</dt><dd>${isBadgeActive(u) ? (u.verifiedUntil ? `Actif jusqu'au ${esc(untilLabel(u))} (${daysLeft(u)} j)${u.verifiedPlan ? ' · ' + esc((planOf(u.verifiedPlan) || {}).label || '') : ''}` : 'Actif (sans date de fin)') : isBadgeExpired(u) ? `Expiré le ${esc(untilLabel(u))}` : 'Non vérifié'}</dd>
         <dt>Statut</dt><dd>${u.suspended ? `Suspendu${u.suspendedReason ? ' — ' + esc(u.suspendedReason) : ''}` : 'Actif'}</dd>
         <dt>Identifiant</dt><dd><small>${esc(u.id)}</small></dd>
       </dl>
@@ -125,16 +129,41 @@ function openUser(u) {
       <div class="adm-actions">
         <a class="btn btn-ghost" href="profile.html?id=${encodeURIComponent(u.id)}">${icon('user', 16)} Profil</a>
         ${self ? '' : `<a class="btn btn-ghost" href="chat.html?with=${encodeURIComponent(u.id)}">${icon('message', 16)} Écrire</a>
-        <button class="btn btn-ghost" id="uVerify">${u.verified ? 'Retirer le badge' : 'Accorder le badge'}</button>
+        <button class="btn btn-ghost" id="uGrant">${isBadgeActive(u) ? 'Prolonger le badge…' : 'Accorder le badge…'}</button>
+        ${u.verified ? '<button class="btn btn-ghost" id="uRevoke" style="color:var(--danger)">Retirer le badge</button>' : ''}
+        <button class="btn btn-ghost" id="uDossier">Dossier de vérification</button>
         <button class="btn btn-ghost" id="uSuspend" style="color:${u.suspended ? 'var(--success)' : 'var(--danger)'}">${u.suspended ? 'Réactiver le compte' : 'Suspendre le compte'}</button>`}
       </div>`,
     actions: [{ label: 'Fermer', primary: true }],
     onOpen: (el, close) => {
-      const v = el.querySelector('#uVerify');
-      if (v) v.onclick = () => { close(); confirmAction({
-        title: u.verified ? `Retirer le badge de ${u.name} ?` : `Accorder le badge à ${u.name} ?`, confirmLabel: 'Confirmer',
-        onConfirm: async () => { await ctx.m.updateDoc(ctx.m.doc(ctx.db, 'users', u.id), { verified: !u.verified }); await audit(ctx, u.verified ? 'user_unverify' : 'user_verify', 'user', u.id, u.name); toast('Badge mis à jour'); u.verified = !u.verified; render(); }
+      const g = el.querySelector('#uGrant');
+      if (g) g.onclick = () => { close(); grantModal({
+        title: isBadgeActive(u) ? `Prolonger le badge de ${u.name}` : `Accorder le badge à ${u.name}`, plan: u.verifiedPlan || 'm1', currentUntil: isBadgeActive(u) ? untilMs(u) : 0,
+        confirmLabel: isBadgeActive(u) ? 'Prolonger' : 'Accorder le badge',
+        onConfirm: async ({ plan, until, note }) => {
+          await ctx.m.updateDoc(ctx.m.doc(ctx.db, 'users', u.id), { verified: true, verifiedUntil: new Date(until), verifiedPlan: plan });
+          await audit(ctx, 'user_verify', 'user', u.id, `${u.name} — ${(planOf(plan) || {}).label} jusqu'au ${new Date(until).toLocaleDateString('fr-FR')}`);
+          notify(u.id, { type: 'verification', id: `verification_${Date.now()}`, title: 'Badge de vérification accordé', body: `Actif jusqu'au ${new Date(until).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}.${note ? ' ' + note : ''}`, link: 'badge.html' });
+          toast('Badge accordé'); u.verified = true; u.verifiedUntil = new Date(until); u.verifiedPlan = plan; render();
+        }
       }); };
+      const rv = el.querySelector('#uRevoke');
+      if (rv) rv.onclick = () => { close(); confirmAction({
+        title: `Retirer le badge de ${u.name} ?`, text: 'Le badge est retiré tout de suite, sans attendre sa date de fin.', confirmLabel: 'Retirer le badge', danger: true, reason: { label: 'Motif (facultatif)' },
+        onConfirm: async (note) => {
+          await ctx.m.updateDoc(ctx.m.doc(ctx.db, 'users', u.id), { verified: false, verifiedUntil: ctx.m.deleteField(), verifiedPlan: ctx.m.deleteField() });
+          await audit(ctx, 'user_unverify', 'user', u.id, `${u.name}${note ? ' — ' + note : ''}`);
+          notify(u.id, { type: 'verification', id: `verification_${Date.now()}`, title: 'Badge de vérification retiré', body: note || '', link: 'badge.html' });
+          toast('Badge retiré'); u.verified = false; delete u.verifiedUntil; render();
+        }
+      }); };
+      const dos = el.querySelector('#uDossier');
+      if (dos) dos.onclick = async () => {
+        close();
+        let r = null;
+        try { const s = await ctx.m.getDoc(ctx.m.doc(ctx.db, 'verificationRequests', u.id)); r = s.exists() ? s.data() : null; } catch (x) { /* ignoré */ }
+        openModal({ title: `Dossier de ${u.name}`, html: r ? dossierHtml(r, priv.get(u.id)) : '<p class="muted">Aucune demande de vérification pour ce compte.</p>', actions: [{ label: 'Fermer', primary: true }] });
+      };
       const s = el.querySelector('#uSuspend');
       if (s) s.onclick = () => { close(); if (u.suspended) confirmAction({
         title: `Réactiver ${u.name} ?`, confirmLabel: 'Réactiver',
