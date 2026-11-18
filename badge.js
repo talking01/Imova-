@@ -14,6 +14,8 @@ import { icon, hydrateIcons } from './icons.js';
 import { esc, clean, toast, explainError } from './utils.js';
 import { openModal } from './modal.js';
 import { setFieldError, setFormError } from './validation.js';
+import { readStatus } from './account-guard.js';
+import { statusOf, setCurrent, blockedMessage } from './account-status.js';
 
 const main = document.getElementById('main');
 document.getElementById('pageHeader').innerHTML = pageHeader('Vérification');
@@ -143,6 +145,8 @@ async function run() {
   me = await whenReady();
   if (!me) { location.replace(loginUrl()); return; }
   try { [user, req, settings] = await Promise.all([getUserDoc(me.uid), getMyRequest(me.uid), getSettings()]); } catch (e) { console.error(e); main.innerHTML = emptyState({ iconName: 'badge', title: 'Chargement impossible', text: explainError(e) }); hydrateIcons(); return; }
+  const stNow = statusOf(await readStatus(me.uid)); setCurrent(stNow);
+  const blockedNote = blockedMessage('demander le badge');
   plans = pricedPlans(settings.badgePrices);
   if (!plans.find((p) => p.id === selected)) selected = plans[0].id;
   const active = user.verified === true;
@@ -151,8 +155,8 @@ async function run() {
   const canFull = !active && !user.badgeExpired && (!req || req.status === 'rejected' || req.status === 'revoked');
   const canFullAfterExpiry = user.badgeExpired && (!req || req.status !== 'approved'); // badge expiré sans dossier approuvé
   const closed = settings.verificationOpen === false;
-  const showForm = (canFull || canFullAfterExpiry) && !closed && supportReady;
-  const showRenew = renewable && !(req.status === 'pending') && !closed && supportReady && !(req && req.renewal && req.status === 'pending');
+  const showForm = (canFull || canFullAfterExpiry) && !closed && supportReady && !blockedNote;
+  const showRenew = renewable && !(req.status === 'pending') && !closed && supportReady && !blockedNote && !(req && req.renewal && req.status === 'pending');
   main.innerHTML = `
     ${sectionHead(1, 'Le badge de vérification', 'Ce que c\'est, ce que ça coûte et ce que ça apporte.')}
     ${hero()}
@@ -164,6 +168,7 @@ async function run() {
     <p class="muted pay-note">${icon('info', 16)} Le paiement en ligne n'est pas encore disponible : après l'envoi de votre demande, les modalités de paiement sont convenues avec le support dans la conversation.</p>
     ${!supportReady ? `<div class="notice">Le support n'est pas encore configuré par l'administrateur : la demande est momentanément indisponible.</div>` : ''}
     ${closed ? `<div class="notice">Les nouvelles demandes de vérification sont momentanément fermées.</div>` : ''}
+    ${blockedNote ? `<div class="notice" role="alert">${esc(blockedNote)} <a href="examination.html">Voir les détails</a></div>` : ''}
     ${showForm || showRenew ? `<div id="requestSection">${sectionHead(2, showRenew ? 'Renouveler mon badge' : 'Votre demande', showRenew ? '' : 'Les informations et documents à fournir pour vérifier votre profil.')}
       ${!cloudinaryReady && showForm ? '<div class="notice">Le stockage des documents (Cloudinary) n\'est pas encore configuré : voir GUIDE-FIREBASE.md.</div>' : ''}
       ${showRenew ? renewHtml() : formHtml()}</div>` : ''}`;

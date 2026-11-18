@@ -19,7 +19,7 @@ import { SUPPORT_UID, supportReady } from './app-config.js';
 import { openModal } from './modal.js';
 import { pageHeader, bindBack, emptyState, skeletonCard, verifiedMark } from './components.js';
 import { icon, hydrateIcons } from './icons.js';
-import { esc, clean, toast, explainError, getTheme, toggleTheme } from './utils.js';
+import { esc, clean, toast, explainError, getTheme, toggleTheme, guardAction } from './utils.js';
 import { isReady, notReadyMessage } from './pages.js';
 
 const main = document.getElementById('main');
@@ -119,6 +119,7 @@ async function savePref(path, val) {
   render();
 }
 async function savePub(field, val) {
+  if (!guardAction('modifier vos informations')) { render(); return; }
   const before = u[field];
   u[field] = val;
   try { await savePublic(me.uid, { [field]: val }); toast('Réglage enregistré'); } catch (e) { console.error(e); u[field] = before; toast(explainError(e)); }
@@ -131,6 +132,7 @@ const errHtml = '<p class="error" id="fErr" hidden></p>';
 const field = (id, label, type = 'text', extra = '') => `<div class="field" style="margin-bottom:12px"><label for="${id}">${label}</label><input class="input" id="${id}" type="${type}" ${extra}></div>`;
 
 function modalPersonal() {
+  if (!guardAction('modifier vos informations')) return;
   const create = !priv;
   const agency = u.type === 'agence';
   const f = create ? { firstName: '', lastName: '', postName: '', gender: '', birthDate: '', phone: '', email: '', agencyName: u.name || '' } : toForm(priv);
@@ -276,7 +278,7 @@ main.addEventListener('change', (e) => {
     [u, prefs] = await Promise.all([getUserDoc(me.uid), getPrefs(me.uid, { force: true })]);
     try { priv = await getPrivate(me.uid); } catch (e) { priv = null; }
     const ids = [...(await getBlockedIds(me.uid, { force: true }))];
-    const a = ids.length ? await loadAuthors(ids) : new Map();
+    const a = ids.length ? await loadAuthors(ids, { raw: true }) : new Map();
     blocked = ids.map((id) => ({ id, name: (a.get(id) || {}).name || 'Utilisateur' }));
   } catch (e) { console.error(e); main.innerHTML = emptyState({ iconName: 'lock', title: 'Chargement impossible', text: explainError(e) }); hydrateIcons(); return; }
   if (!u) { main.innerHTML = emptyState({ iconName: 'user', title: 'Profil introuvable' }); hydrateIcons(); return; }

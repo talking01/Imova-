@@ -2,6 +2,7 @@
 import { initAdmin, audit, fmtDate, fmtDateTime, pill, confirmAction } from './admin.js';
 import { normalizePhone, fullNameOf, genderLabel, ageOf, dateToIso, isPhoneEmail, emailToPhone } from './identity.js';
 import { openModal } from './modal.js';
+import { statusOf, fmtWhen } from './account-status.js';
 import { dossierHtml, grantModal, untilLabel } from './verif-view.js';
 import { isBadgeActive, isBadgeExpired, daysLeft, untilMs } from './badge-rules.js';
 import { planOf } from './badge-config.js';
@@ -30,7 +31,7 @@ async function loadPriv(list) {
 const contactOf = (p) => (p ? [p.phone, p.email].filter(Boolean).join(' · ') : '');
 
 const matchMode = (u) => mode !== 'agence' || u.type === 'agence';
-const matchFilter = (u) => (filter === 'verified' ? !!u.verified : filter === 'suspended' ? !!u.suspended : filter === 'particulier' ? u.type !== 'agence' : true);
+const matchFilter = (u) => (filter === 'verified' ? !!u.verified : filter === 'suspended' ? ['suspended', 'deleted', 'restricted'].includes(statusOf(u).state) : filter === 'particulier' ? u.type !== 'agence' : true);
 
 async function load(append = false) {
   const list = main.querySelector('#list');
@@ -71,7 +72,7 @@ function render() {
       <span class="avatar">${u.photoUrl ? `<img src="${esc(optimized(u.photoUrl, 100))}" alt="">` : esc((u.name || '?').trim().charAt(0).toUpperCase())}</span>
       <span class="grow"><strong>${esc(u.name || 'Utilisateur')}</strong><small>${u.type === 'agence' ? 'Agence' : 'Particulier'} · inscrit le ${esc(fmtDate(u.createdAt))} · ${compact(u.followersCount || 0)} abonnés</small>
         ${priv.get(u.id) ? `<small>${u.type === 'agence' ? 'Responsable : ' : ''}${esc(fullNameOf(priv.get(u.id)))} · ${esc(contactOf(priv.get(u.id)))}</small>` : '<small>Informations personnelles non renseignées</small>'}</span>
-      ${isBadgeActive(u) ? pill('Vérifié', 'ok') : isBadgeExpired(u) ? pill('Badge expiré', 'warn') : ''}${u.suspended ? pill('Suspendu', 'bad') : ''}
+      ${isBadgeActive(u) ? pill('Vérifié', 'ok') : isBadgeExpired(u) ? pill('Badge expiré', 'warn') : ''}${(() => { const st = statusOf(u).state; return st === 'suspended' ? pill('Suspendu', 'bad') : st === 'deleted' ? pill('Supprimé', 'bad') : st === 'restricted' ? pill('Restreint', 'warn') : ''; })()}
     </button>`).join('')}</div>${more ? '<div class="more-wrap"><button class="btn btn-ghost" id="moreBtn">Voir plus</button></div>' : ''}`
     : emptyState({ iconName: 'users', title: 'Aucun résultat' });
   hydrateIcons(list);
@@ -122,7 +123,7 @@ function openUser(u) {
         <dt>Abonnés</dt><dd>${compact(u.followersCount || 0)}</dd>
         <dt>Avis</dt><dd>${u.ratingCount ? `${(u.ratingSum / u.ratingCount).toFixed(1).replace('.', ',')} (${u.ratingCount})` : 'Aucun'}</dd>
         <dt>Badge</dt><dd>${isBadgeActive(u) ? (u.verifiedUntil ? `Actif jusqu'au ${esc(untilLabel(u))} (${daysLeft(u)} j)${u.verifiedPlan ? ' · ' + esc((planOf(u.verifiedPlan) || {}).label || '') : ''}` : 'Actif (sans date de fin)') : isBadgeExpired(u) ? `Expiré le ${esc(untilLabel(u))}` : 'Non vérifié'}</dd>
-        <dt>Statut</dt><dd>${u.suspended ? `Suspendu${u.suspendedReason ? ' — ' + esc(u.suspendedReason) : ''}` : 'Actif'}</dd>
+        <dt>Statut</dt><dd>${(() => { const st = statusOf(u); return { active: 'Actif', restricted: `Restreint jusqu'au ${fmtWhen(st.until)}`, suspended: 'Suspendu', deleted: 'Supprimé' }[st.state] + (st.reason ? ' — ' + esc(st.reason) : ''); })()}</dd>
         <dt>Identifiant</dt><dd><small>${esc(u.id)}</small></dd>
       </dl>
       ${personalHtml(u)}
@@ -132,7 +133,7 @@ function openUser(u) {
         <button class="btn btn-ghost" id="uGrant">${isBadgeActive(u) ? 'Prolonger le badge…' : 'Accorder le badge…'}</button>
         ${u.verified ? '<button class="btn btn-ghost" id="uRevoke" style="color:var(--danger)">Retirer le badge</button>' : ''}
         <button class="btn btn-ghost" id="uDossier">Dossier de vérification</button>
-        <button class="btn btn-ghost" id="uSuspend" style="color:${u.suspended ? 'var(--success)' : 'var(--danger)'}">${u.suspended ? 'Réactiver le compte' : 'Suspendre le compte'}</button>`}
+        <a class="btn btn-ghost" id="uExam" href="admin-examinations.html?uid=${encodeURIComponent(u.id)}" style="color:var(--danger)">Examen et modération du compte</a>`}
       </div>`,
     actions: [{ label: 'Fermer', primary: true }],
     onOpen: (el, close) => {
@@ -164,14 +165,6 @@ function openUser(u) {
         try { const s = await ctx.m.getDoc(ctx.m.doc(ctx.db, 'verificationRequests', u.id)); r = s.exists() ? s.data() : null; } catch (x) { /* ignoré */ }
         openModal({ title: `Dossier de ${u.name}`, html: r ? dossierHtml(r, priv.get(u.id)) : '<p class="muted">Aucune demande de vérification pour ce compte.</p>', actions: [{ label: 'Fermer', primary: true }] });
       };
-      const s = el.querySelector('#uSuspend');
-      if (s) s.onclick = () => { close(); if (u.suspended) confirmAction({
-        title: `Réactiver ${u.name} ?`, confirmLabel: 'Réactiver',
-        onConfirm: async () => { await ctx.m.updateDoc(ctx.m.doc(ctx.db, 'users', u.id), { suspended: false, suspendedReason: '' }); await audit(ctx, 'user_unsuspend', 'user', u.id, u.name); toast('Compte réactivé'); u.suspended = false; render(); }
-      }); else confirmAction({
-        title: `Suspendre ${u.name} ?`, text: 'Ce compte ne pourra plus publier, écrire, suivre ni noter. Ses annonces restent visibles sauf si vous les masquez.', confirmLabel: 'Suspendre', danger: true, reason: { label: 'Motif', required: true },
-        onConfirm: async (r) => { await ctx.m.updateDoc(ctx.m.doc(ctx.db, 'users', u.id), { suspended: true, suspendedReason: r }); await audit(ctx, 'user_suspend', 'user', u.id, `${u.name} — ${r}`); toast('Compte suspendu'); u.suspended = true; render(); }
-      }); };
     }
   });
 }

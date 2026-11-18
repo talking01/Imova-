@@ -27,8 +27,9 @@ async function run() {
   try {
     const owner = await getUserDoc(id);
     if (!owner) { main.innerHTML = emptyState({ iconName: 'user', title: 'Profil introuvable', actionLabel: "Retour à l'accueil", actionHref: 'index.html' }); hydrateIcons(); return; }
-    const reviews = await listReviews(id);
-    const authors = await loadAuthors(reviews.map((r) => r.reviewerId));
+    const allReviews = await listReviews(id);
+    const authors = await loadAuthors(allReviews.map((r) => r.reviewerId));
+    const reviews = allReviews.filter((r) => !(authors.get(r.reviewerId) || {}).hidden);
     const avg = average(owner);
     const isOwn = !!me && me.uid === id;
     const mine = me ? reviews.find((r) => r.reviewerId === me.uid) : null;

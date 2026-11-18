@@ -1,3 +1,4 @@
+import { blockedMessage } from './account-status.js';
 // Imova — utils.js : petits outils partagés (texte sûr, dates, thème, messages)
 
 // Protection XSS : tout texte venant d'un utilisateur passe par esc() avant d'entrer dans du HTML.
@@ -79,9 +80,18 @@ export function overlayRoot() {
 }
 
 // Explique une erreur Firebase en français, pour afficher une bulle claire
-export function explainError(e) {
+// action : ce que la personne essayait de faire (ex. « publier une annonce ») pour un message précis
+export function explainError(e, action = '') {
   const code = (e && e.code) || '';
-  if (code === 'permission-denied') return "Permission refusée : les règles Firestore ne sont pas à jour (firestore.rules), ou votre compte est suspendu, ou l'action est fermée par l'administration.";
+  if (code === 'permission-denied') {
+    // 1) compte restreint, suspendu ou supprimé : on le dit clairement
+    const blocked = blockedMessage(action || 'effectuer cette action');
+    if (blocked) return blocked;
+    // 2) pas les droits pour cette action
+    const role = typeof window !== 'undefined' ? window.__imovaRole : '';
+    if (role) return `Vous n'êtes pas autorisé à ${action || 'effectuer cette action'} avec votre rôle (${role}). Si c'est une erreur, vérifiez le champ role de votre document dans la collection admins et que firestore.rules est publié.`;
+    return `Vous n'êtes pas autorisé à ${action || 'effectuer cette action'}.`;
+  }
   if (code === 'unavailable' || code === 'auth/network-request-failed') return 'Pas de connexion Internet.';
   if (code === 'failed-precondition') return "Un index Firestore est nécessaire (voir GUIDE-FIREBASE.md, étape « Index »).";
   return 'Action impossible pour le moment. Réessayez dans un instant.';
@@ -132,3 +142,11 @@ export function lastSeenLabel(date) {
 
 // Secondes → « 1:05 »
 export const mmss = (s) => `${Math.floor(s / 60)}:${pad(Math.round(s % 60))}`;
+
+// À appeler avant une action réservée aux comptes actifs : « publier », « aimer une annonce »... Retourne false (avec un message) si le compte est restreint ou suspendu
+export function guardAction(action) {
+  const m = blockedMessage(action);
+  if (!m) return true;
+  toast(m);
+  return false;
+}

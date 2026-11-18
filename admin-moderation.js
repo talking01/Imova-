@@ -3,6 +3,7 @@ import { initAdmin, audit, names, nameOf, fmtDate, pill, confirmAction } from '.
 import { icon, hydrateIcons } from './icons.js';
 import { esc, toast, explainError } from './utils.js';
 import { stars } from './components.js';
+import { statusOf } from './account-status.js';
 
 const main = document.getElementById('main');
 let ctx, hidden = [], suspended = [], reviews = [], authors = new Map();
@@ -12,11 +13,11 @@ async function load() {
   try {
     const [h, s, r] = await Promise.all([
       m.getDocs(m.query(m.collection(db, 'properties'), m.where('status', '==', 'hidden'), m.limit(50))),
-      rank >= 2 ? m.getDocs(m.query(m.collection(db, 'users'), m.where('suspended', '==', true), m.limit(50))) : Promise.resolve({ docs: [] }),
+      rank >= 2 ? Promise.all([m.getDocs(m.query(m.collection(db, 'users'), m.where('suspended', '==', true), m.limit(50))), m.getDocs(m.query(m.collection(db, 'users'), m.where('status', '==', 'restricted'), m.limit(50)))]).then(([a, b]) => ({ docs: [...a.docs, ...b.docs] })) : Promise.resolve({ docs: [] }),
       m.getDocs(m.query(m.collection(db, 'reviews'), m.orderBy('createdAt', 'desc'), m.limit(20)))
     ]);
     hidden = h.docs.map((d) => ({ id: d.id, ...d.data() }));
-    suspended = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+    suspended = s.docs.map((d) => ({ id: d.id, ...d.data() })).filter((u) => statusOf(u).state !== 'active');
     reviews = r.docs.map((d) => ({ id: d.id, ...d.data() }));
     authors = await names([...hidden.map((p) => p.authorId), ...reviews.flatMap((x) => [x.reviewerId, x.targetId])]);
   } catch (e) { console.error(e); main.innerHTML = `<div class="empty"><h2>Chargement impossible</h2><p>${esc(explainError(e))}</p></div>`; return; }
@@ -29,8 +30,8 @@ function render() {
     <div class="adm-title"><h1>Modération</h1></div>
     <h3 class="section-title">Annonces masquées (${hidden.length})</h3>
     <div class="card adm-list">${hidden.map((p) => `<div class="adm-row" data-kind="prop" data-id="${esc(p.id)}"><span class="grow"><strong>${esc(p.title)}</strong><small>${esc(nameOf(authors, p.authorId))}${p.moderationNote ? ' · ' + esc(p.moderationNote) : ''}</small></span><button class="btn btn-ghost btn-sm" data-act="show">Réactiver</button></div>`).join('') || none('Aucune annonce masquée.')}</div>
-    ${ctx.rank >= 2 ? `<h3 class="section-title">Comptes suspendus (${suspended.length})</h3>
-    <div class="card adm-list">${suspended.map((u) => `<div class="adm-row" data-kind="user" data-id="${esc(u.id)}"><span class="grow"><strong>${esc(u.name || 'Utilisateur')}</strong><small>${esc(u.suspendedReason || 'Sans motif')}</small></span><button class="btn btn-ghost btn-sm" data-act="unsuspend">Réactiver</button></div>`).join('') || none('Aucun compte suspendu.')}</div>` : ''}
+    ${ctx.rank >= 2 ? `<h3 class="section-title">Comptes restreints, suspendus ou supprimés (${suspended.length})</h3>
+    <div class="card adm-list">${suspended.map((u) => `<div class="adm-row" data-kind="user" data-id="${esc(u.id)}"><span class="grow"><strong>${esc(u.name || 'Utilisateur')}</strong><small>${esc({ suspended: 'Suspendu', deleted: 'Supprimé', restricted: 'Restreint' }[statusOf(u).state])} — ${esc(statusOf(u).reason || u.suspendedReason || 'Sans motif')}</small></span><a class="btn btn-ghost btn-sm" href="admin-examinations.html?uid=${encodeURIComponent(u.id)}">Examiner</a></div>`).join('') || none('Aucun compte suspendu.')}</div>` : ''}
     <h3 class="section-title">Avis récents</h3>
     <div class="card adm-list">${reviews.map((r) => `<div class="adm-row" data-kind="review" data-id="${esc(r.id)}"><span class="grow"><strong>${stars(r.rating, 14)} ${esc(nameOf(authors, r.reviewerId))} → ${esc(nameOf(authors, r.targetId))}</strong><small>${esc(r.comment || 'Sans commentaire')} · ${esc(fmtDate(r.createdAt))}</small></span><button class="btn btn-ghost btn-sm" data-act="del" style="color:var(--danger)" aria-label="Supprimer l'avis">${icon('trash', 16)}</button></div>`).join('') || none('Aucun avis.')}</div>`;
   hydrateIcons(main);

@@ -10,6 +10,7 @@ import { loadAuthors } from './properties.js';
 import { isConfigured } from './firebase.js';
 import { startSync, setPersonalization } from './interests.js';
 import { checkMyBadge } from './badge-expiry.js';
+import { syncBroadcasts } from './broadcast-sync.js';
 import { toast } from './utils.js';
 import { setBadge } from './navbar.js';
 
@@ -44,6 +45,7 @@ export async function initBadges({ currentCid = '' } = {}) {
   const prefs = await getPrefs(me.uid);
   setPersonalization(prefs.personalization !== false);
   startSync(me.uid);
+  syncBroadcasts(me.uid).catch(() => {});
   checkMyBadge(me.uid).then((r) => { if (r && r.expired) toast('Votre badge de vérification a expiré. Renouvelez-le depuis Menu → Vérification.'); }).catch(() => {});
   if (prefs.browser.enabled && permission() === 'granted') registerSW();
   const canPush = () => prefs.browser.enabled && permission() === 'granted' && document.visibilityState === 'hidden';

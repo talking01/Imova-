@@ -15,12 +15,14 @@ import { openSheet, openModal } from './modal.js';
 import { openViewer, optimized } from './viewer.js';
 import { openReport } from './reports.js';
 import { icon, hydrateIcons } from './icons.js';
-import { esc, clean, toast, clock, dayLabel, lastSeenLabel, mmss, param, explainError } from './utils.js';
+import { esc, clean, toast, clock, dayLabel, lastSeenLabel, mmss, param, explainError, guardAction } from './utils.js';
 import { isConfigured } from './firebase.js';
 import { SUPPORT_UID } from './app-config.js';
 import { getPrefs } from './settings.js';
 import { isFollowing } from './follows.js';
 import { initBadges } from './badges.js';
+import { ready as visReady, isStaffViewer, isBlockedEither } from './visibility.js';
+import { isHiddenAccount } from './account-status.js';
 import { emptyState } from './components.js';
 
 const PREDEFINED = 'Salut ! Je suis intéressé par cet article, pouvons-nous en discuter ?';
@@ -363,8 +365,11 @@ function renderComposer() {
 function paintComposerState() {
   $('blockedBox').hidden = !S.blocked;
   const rb = $('restrictBox');
-  if (rb) rb.hidden = !S.restricted || !!S.conv;
-  $('normalRow').hidden = S.blocked || !!S.rec || (S.restricted && !S.conv);
+  if (rb) {
+    rb.hidden = !S.unavailable && (!S.restricted || !!S.conv);
+    if (S.unavailable) rb.firstElementChild.textContent = "Vous ne pouvez plus écrire à cet utilisateur.";
+  }
+  $('normalRow').hidden = S.blocked || !!S.rec || S.unavailable || (S.restricted && !S.conv);
   $('recRow').hidden = !S.rec;
   $('editBanner').hidden = !S.editing;
 }
@@ -419,6 +424,8 @@ async function submit() {
   if (!text) return;
   if (S.editing) { await saveEdit(text); return; }
   if (S.blocked) { toast('Débloquez ce contact pour lui écrire.'); return; }
+  // un compte restreint peut répondre, mais pas ouvrir une nouvelle discussion
+  if (!S.conv && !guardAction('ouvrir une nouvelle discussion')) return;
   input.value = '';
   grow();
   updateAction();
@@ -613,6 +620,12 @@ async function init() {
   S.cid = convId(S.me, other);
   try { S.other_user = await getUserDoc(other); } catch (e) { fatal('Chargement impossible', explainError(e)); return; }
   if (!S.other_user) { fatal('Profil introuvable', "Cette personne n'existe pas ou n'est plus disponible."); return; }
+  // personne bloquée (dans un sens ou l'autre), compte suspendu ou supprimé : seulement « Utilisateur », sans photo, et on ne peut plus lui écrire
+  await visReady();
+  if (!isStaffViewer() && other !== SUPPORT_UID && (isBlockedEither(other) || isHiddenAccount(S.other_user))) {
+    S.other_user = { name: 'Utilisateur', photoUrl: '', verified: false, hidden: true, showStatus: false };
+    S.unavailable = true;
+  }
   try { S.blocked = (await getBlockedIds(S.me)).has(other); } catch (e) { S.blocked = false; }
 
   try { S.prefs = await getPrefs(S.me); } catch (e) { S.prefs = null; }
@@ -633,7 +646,7 @@ async function init() {
   bindUi();
   startPresence(S.me);
   initBadges({ currentCid: S.cid });
-  watchUser(other, (u) => { if (u) { S.other_user = { ...S.other_user, ...u }; renderStatus(); } }).catch(() => {});
+  watchUser(other, (u) => { if (u && !S.unavailable) { S.other_user = { ...S.other_user, ...u }; renderStatus(); } }).catch(() => {});
   await watchConversation(S.cid, onConv, (e) => { console.error(e); toast(explainError(e)); });
 
   // Depuis « Aide et assistance » : le texte déjà saisi par l'utilisateur est envoyé tout de suite

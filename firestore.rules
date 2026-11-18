@@ -1,5 +1,5 @@
 rules_version = '2';
-// RÈGLES — Phase 3, étape 9 (badge payant à durée, dossier de vérification avec documents ; étape 8 : annonces, J'aime, favoris, profils, abonnements, avis, messagerie, badge de vérification,
+// RÈGLES — Phase 3, étape 10 (restrictions, suspensions et suppressions de comptes avec examen, notifications personnalisées, blocage réciproque ; étape 9 : badge payant à durée, dossier de vérification avec documents ; étape 8 : annonces, J'aime, favoris, profils, abonnements, avis, messagerie, badge de vérification,
 // statistiques, administration avec rôles, notifications, confidentialité, INFORMATIONS PERSONNELLES privées,
 // INTÉRÊTS et RECOMMANDATIONS de chaque compte).
 service cloud.firestore {
@@ -48,8 +48,9 @@ service cloud.firestore {
     function adminPath(uid) { return /databases/$(database)/documents/admins/$(uid); }
     function isStaff() { return signedIn() && exists(adminPath(request.auth.uid)); }
     function staffRole() { return get(adminPath(request.auth.uid)).data.role.lower(); }
-    function isAdmin() { return isStaff() && staffRole() in ['owner', 'admin']; }
-    function isOwnerRole() { return isStaff() && staffRole() == 'owner'; }
+    // Le rôle est reconnu même avec des majuscules, des espaces en trop ou un synonyme français
+    function isAdmin() { return isStaff() && staffRole().matches('\\s*(owner|propri.taire|admin|administrateur)\\s*'); }
+    function isOwnerRole() { return isStaff() && staffRole().matches('\\s*(owner|propri.taire)\\s*'); }
     // Confidentialité : qui peut démarrer une conversation avec moi ? (tout le monde, ou seulement les personnes que je suis ;
     // l'équipe d'administration et le support peuvent toujours écrire)
     function canStartWith(other) {
@@ -98,8 +99,15 @@ service cloud.firestore {
         && d.signals is number
         && d.updatedAt == request.time;
     }
-    // un compte suspendu ne peut plus publier, écrire, suivre ni noter
-    function notSuspended() { return !get(userPath(request.auth.uid)).data.get('suspended', false); }
+    // État du compte de la personne connectée (champs status, restrictedUntil, suspended)
+    //   suspendu ou supprimé : plus aucune écriture ;
+    //   restreint (temporaire) : peut répondre à un message mais ne peut ni publier, ni noter, ni aimer, ni suivre,
+    //   ni ouvrir une nouvelle discussion, ni demander le badge, ni changer ses informations.
+    function acc() { return get(userPath(request.auth.uid)).data; }
+    function isSuspendedAcc() { return acc().get('suspended', false) == true || acc().get('status', 'active') in ['suspended', 'deleted']; }
+    function isRestrictedAcc() { return acc().get('status', 'active') == 'restricted' && acc().get('restrictedUntil', request.time) > request.time; }
+    function notSuspended() { return !isSuspendedAcc() && !isRestrictedAcc(); }
+    function canReply() { return !isSuspendedAcc(); }
     function settingsPath() { return /databases/$(database)/documents/platformSettings/main; }
     function publishingOpen() { return !exists(settingsPath()) || get(settingsPath()).data.get('publishingEnabled', true); }
     function verificationOpen() { return !exists(settingsPath()) || get(settingsPath()).data.get('verificationOpen', true); }
@@ -183,8 +191,9 @@ service cloud.firestore {
 
       // Modération : l'équipe peut masquer / réactiver une annonce (champs status et moderationNote seulement)
       allow update: if isStaff()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'moderationNote'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'moderationNote', 'hiddenBy'])
         && request.resource.data.status in ['active', 'hidden']
+        && (!('hiddenBy' in request.resource.data) || request.resource.data.hiddenBy in ['account', 'moderation'])
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['moderationNote'])
             || (request.resource.data.moderationNote is string && request.resource.data.moderationNote.size() <= 300));
 
@@ -202,6 +211,7 @@ service cloud.firestore {
     match /properties/{pid}/likes/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
       allow create: if signedIn()
+        && notSuspended()
         && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['userId', 'createdAt'])
         && request.resource.data.userId == uid
@@ -254,6 +264,7 @@ service cloud.firestore {
       // Modification de son propre profil : seulement ces champs
       allow update: if signedIn()
         && request.auth.uid == uid
+        && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeen']) ? canReply() : notSuspended())
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['photoUrl', 'coverUrl', 'bio', 'description', 'phone', 'contactEmail', 'address', 'website', 'hours', 'lastSeen',
                        'showStatus', 'messagesFrom', 'discoverable'])
@@ -329,7 +340,10 @@ service cloud.firestore {
 
       // Administration : badge de vérification et suspension
       allow update: if isAdmin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['verified', 'verifiedUntil', 'verifiedPlan', 'suspended', 'suspendedReason'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['verified', 'verifiedUntil', 'verifiedPlan', 'suspended', 'suspendedReason', 'status', 'restrictedUntil', 'statusReason', 'statusAt', 'statusBy'])
+        && (!('status' in request.resource.data) || request.resource.data.status in ['active', 'restricted', 'suspended', 'deleted'])
+        && (!('restrictedUntil' in request.resource.data) || request.resource.data.restrictedUntil is timestamp)
+        && (!('statusReason' in request.resource.data) || (request.resource.data.statusReason is string && request.resource.data.statusReason.size() <= 500))
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['suspendedReason'])
             || (request.resource.data.suspendedReason is string && request.resource.data.suspendedReason.size() <= 300))
         && (!('verifiedUntil' in request.resource.data) || request.resource.data.verifiedUntil is timestamp)
@@ -457,7 +471,7 @@ service cloud.firestore {
 
         allow create: if signedIn()
           && request.auth.uid in getAfter(convPath(cid)).data.members
-          && notSuspended()
+          && canReply()
           && request.resource.data.keys().hasOnly(['senderId', 'type', 'text', 'mediaUrl', 'duration', 'ref', 'fileName', 'fileSize', 'createdAt'])
           && request.resource.data.senderId == request.auth.uid
           && request.resource.data.type in ['text', 'image', 'audio', 'file']
@@ -502,8 +516,8 @@ service cloud.firestore {
 
     // ───────── Contacts bloqués (visibles seulement par celui qui bloque)
     match /blocks/{id} {
-      allow get: if signedIn() && id.matches(request.auth.uid + '_.*');
-      allow list: if signedIn() && resource.data.blockerId == request.auth.uid;
+      allow get: if signedIn() && (id.matches(request.auth.uid + '_.*') || id.matches('.*_' + request.auth.uid));
+      allow list: if signedIn() && (resource.data.blockerId == request.auth.uid || resource.data.blockedId == request.auth.uid);
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['blockerId', 'blockedId', 'createdAt'])
         && request.resource.data.blockerId == request.auth.uid
@@ -544,7 +558,8 @@ service cloud.firestore {
     match /events/{id} {
       allow get, list: if signedIn() && (resource.data.ownerId == request.auth.uid || isAdmin());
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['type', 'ownerId', 'viewerId', 'refId', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['type', 'ownerId', 'viewerId', 'refId', 'day', 'createdAt'])
+        && request.resource.data.day == dayString(request.time)
         && request.resource.data.viewerId == request.auth.uid
         && request.resource.data.ownerId is string
         && request.resource.data.ownerId != request.auth.uid
@@ -664,7 +679,7 @@ service cloud.firestore {
         && request.resource.data.read == false
         && request.resource.data.createdAt == request.time
         && request.resource.data.title is string && request.resource.data.title.size() <= 120
-        && request.resource.data.body is string && request.resource.data.body.size() <= 200
+        && request.resource.data.body is string && request.resource.data.body.size() <= (request.resource.data.type == 'system' ? 500 : 200)
         && request.resource.data.refId is string && request.resource.data.refId.size() <= 200
         && request.resource.data.link is string && request.resource.data.link.size() <= 200
         && request.resource.data.link.matches('[a-z0-9-]+\\.html(\\?[A-Za-z0-9=_&%.-]*)?')
@@ -684,6 +699,21 @@ service cloud.firestore {
           ||
           (request.resource.data.type in ['moderation', 'verification', 'system'] && isStaff())
         );
+      // Notification personnalisée envoyée à toute une catégorie : le destinataire en garde une copie à sa première lecture
+      // (titre et message identiques à ceux de l'annonce de l'équipe, et catégorie concernée)
+      allow create: if signedIn()
+        && uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['type', 'actorId', 'refId', 'title', 'body', 'link', 'read', 'createdAt'])
+        && request.resource.data.type == 'system'
+        && request.resource.data.actorId == uid
+        && request.resource.data.read == false
+        && request.resource.data.createdAt == request.time
+        && id.matches('broadcast_[A-Za-z0-9]+')
+        && exists(/databases/$(database)/documents/broadcasts/$(id.replace('broadcast_', '')))
+        && request.resource.data.title == get(/databases/$(database)/documents/broadcasts/$(id.replace('broadcast_', ''))).data.title
+        && request.resource.data.body == get(/databases/$(database)/documents/broadcasts/$(id.replace('broadcast_', ''))).data.body
+        && get(/databases/$(database)/documents/broadcasts/$(id.replace('broadcast_', ''))).data.audience in ['all', get(userPath(uid)).data.type];
+
       // rappel « votre badge expire bientôt » : créé par le titulaire lui-même, seulement dans les 8 jours avant la fin
       allow create: if signedIn()
         && uid == request.auth.uid
@@ -722,6 +752,7 @@ service cloud.firestore {
       allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
       allow list: if isAdmin();
       allow create: if signedIn()
+        && notSuspended()
         && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['accountType', 'firstName', 'lastName', 'postName', 'gender', 'birthDate', 'loginType', 'loginId', 'email', 'phone', 'searchKeys', 'agencyName', 'consent', 'createdAt', 'updatedAt'])
         && request.resource.data.accountType == getAfter(userPath(uid)).data.type
@@ -733,6 +764,7 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
       allow update: if signedIn()
+        && notSuspended()
         && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['firstName', 'lastName', 'postName', 'gender', 'birthDate', 'email', 'phone', 'searchKeys', 'agencyName', 'updatedAt'])
         && validPerson(request.resource.data)
@@ -761,6 +793,51 @@ service cloud.firestore {
         && request.resource.data.basedOn is map
         && request.resource.data.computedAt == request.time;
       allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ───────── Examen des comptes (restriction, suspension, suppression) : lisible par le titulaire (page d'examen) et l'équipe
+    match /moderation/{uid} {
+      allow get: if signedIn() && (uid == request.auth.uid || isStaff());
+      allow list: if isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['status', 'kind', 'reason', 'since', 'until', 'examination', 'history', 'updatedAt', 'updatedBy'])
+        && request.resource.data.status in ['active', 'restricted', 'suspended', 'deleted']
+        && request.resource.data.reason is string && request.resource.data.reason.size() <= 500
+        && request.resource.data.examination is map
+        && request.resource.data.history is list && request.resource.data.history.size() <= 40
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+    // Notes internes de l'équipe sur un compte examiné (jamais visibles par la personne concernée)
+    match /moderationNotes/{uid} {
+      allow read, write: if isAdmin()
+        && (request.method == 'get' || request.method == 'list' || request.method == 'delete'
+            || (request.resource.data.keys().hasOnly(['notes', 'updatedAt'])
+                && request.resource.data.notes is list && request.resource.data.notes.size() <= 100
+                && request.resource.data.updatedAt == request.time));
+    }
+    // Notifications personnalisées pour toute une catégorie (tous, agences, particuliers) : une seule écriture, lue par chaque compte concerné
+    match /broadcasts/{id} {
+      allow read: if signedIn();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['title', 'body', 'link', 'audience', 'createdAt', 'createdBy'])
+        && request.resource.data.audience in ['all', 'agence', 'particulier']
+        && request.resource.data.title is string && request.resource.data.title.size() >= 2 && request.resource.data.title.size() <= 120
+        && request.resource.data.body is string && request.resource.data.body.size() >= 2 && request.resource.data.body.size() <= 500
+        && request.resource.data.link is string && request.resource.data.link.size() <= 200
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if false;
+    }
+    // Historique des notifications personnalisées envoyées (équipe seulement)
+    match /sentNotifications/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['title', 'body', 'audience', 'count', 'names', 'createdAt', 'createdBy'])
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if false;
     }
 
     match /{document=**} {

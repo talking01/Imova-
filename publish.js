@@ -15,6 +15,8 @@ import { setFieldError, setFormError } from './validation.js';
 import { esc, clean, toast, param, explainError, overlayRoot, flash } from './utils.js';
 import { isConfigured } from './firebase.js';
 import { getSettings } from './verification.js';
+import { readStatus } from './account-guard.js';
+import { statusOf, setCurrent, blockedMessage } from './account-status.js';
 
 const MAX_IMAGES = 15;
 const TITLE_MAX = 100;
@@ -318,6 +320,10 @@ async function run() {
   const me = await whenReady();
   if (!me) { location.replace(loginUrl()); return; }
   state.me = me;
+  // compte restreint ou suspendu : message clair au lieu d'un refus vague
+  const stNow = statusOf(await readStatus(me.uid)); setCurrent(stNow);
+  const blockedNote = blockedMessage('publier une annonce');
+  if (blockedNote) { main.innerHTML = emptyState({ iconName: 'lock', title: 'Publication impossible', text: blockedNote, actionLabel: 'Voir les détails', actionHref: 'examination.html' }); hydrateIcons(); return; }
   const settings = await getSettings();
   if (settings.publishingEnabled === false) {
     main.innerHTML = emptyState({ iconName: 'lock', title: 'Publications momentanément fermées', text: 'Les nouvelles annonces sont désactivées pour le moment. Réessayez plus tard.', actionLabel: "Retour à l'accueil", actionHref: 'index.html' });

@@ -2,7 +2,7 @@
 import { icon } from './icons.js';
 import { openSheet, openModal } from './modal.js';
 import { openViewer, optimized } from './viewer.js';
-import { requireAuth } from './guards.js';
+import { requireAuth, requireActive } from './guards.js';
 import { getUser } from './auth.js';
 import { copyLink, shareLink, downloadImages, propertyUrl } from './sharing.js';
 import { deleteProperty, setPinned, fetchPinned } from './properties.js';
@@ -110,7 +110,7 @@ export function createPostCard(property, author = {}, opts = {}) {
   }
 
   async function toggleLike(btn) {
-    if (!requireAuth("aimer cette annonce")) return;
+    if (!requireActive("aimer cette annonce")) return;
     const me = getUser();
     const was = st.liked.has(property.id);
     btn.disabled = true;
@@ -121,7 +121,7 @@ export function createPostCard(property, author = {}, opts = {}) {
       btn.classList.toggle('on', !was);
       btn.setAttribute('aria-pressed', String(!was));
       btn.querySelector('span').textContent = compact(property.likesCount);
-    } catch (e) { console.error(e); toast(explainError(e)); } finally { btn.disabled = false; }
+    } catch (e) { console.error(e); toast(explainError(e, 'aimer cette annonce')); } finally { btn.disabled = false; }
   }
 
   async function toggleFav(btn) {
@@ -173,7 +173,7 @@ export function createPostCard(property, author = {}, opts = {}) {
     });
   }
 
-  function openMenu() {
+  async function openMenu() {
     const me = getUser();
     const own = !!me && me.uid === property.authorId;
     const items = [];
@@ -190,6 +190,13 @@ export function createPostCard(property, author = {}, opts = {}) {
     items.push({ icon: 'link', label: 'Copier le lien', onClick: () => copyLink(url) });
     if (!own && !preview) items.push({ icon: 'eyeOff', label: 'Pas intéressé', onClick: () => { dislike(property); el.remove(); toast('Nous vous proposerons moins d\'annonces comme celle-ci'); } });
     if (!own) items.push({ icon: 'flag', label: 'Signaler cette annonce', danger: true, onClick: () => openReport({ targetType: 'property', targetId: property.id, targetUserId: property.authorId }) });
+    // Équipe d'administration : boutons de modération directement dans les options (masquer, supprimer, restreindre l'auteur...)
+    if (!preview) {
+      try {
+        const { listingItems } = await import('./moderation-menu.js');
+        items.push(...(await listingItems(property, { authorName: author && author.name, onChange: (what) => { if (what === 'hide' || what === 'delete' || what === 'delete-account') el.remove(); } })));
+      } catch (e) { /* menu de modération indisponible */ }
+    }
     openSheet(items);
   }
 

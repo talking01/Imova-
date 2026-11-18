@@ -122,7 +122,7 @@ export async function sendMessage({ me, other, type = 'text', text = '', mediaUr
   // nouvelle conversation : statistique « nouvelle conversation » pour le destinataire (tableau de bord)
   if (!known) {
     const day = utcDay();
-    batch.set(m.doc(db, 'events', `conversation_${me}_${cid}_${day}`), { type: 'conversation', ownerId: other, viewerId: me, refId: cid, createdAt: m.serverTimestamp() });
+    batch.set(m.doc(db, 'events', `conversation_${me}_${cid}_${day}`), { type: 'conversation', ownerId: other, viewerId: me, refId: cid, day, createdAt: m.serverTimestamp() });
   }
   await batch.commit();
   noteSent();
@@ -200,11 +200,13 @@ export async function blockUser(me, other) {
   const { m, db } = await need();
   await m.setDoc(m.doc(db, 'blocks', `${me}_${other}`), { blockerId: me, blockedId: other, createdAt: m.serverTimestamp() });
   blockedCache = null;
+  import('./visibility.js').then((v) => v.refreshVisibility()).catch(() => {});
 }
 export async function unblockUser(me, other) {
   const { m, db } = await need();
   await m.deleteDoc(m.doc(db, 'blocks', `${me}_${other}`));
   blockedCache = null;
+  import('./visibility.js').then((v) => v.refreshVisibility()).catch(() => {});
 }
 let blockedCache = null;
 export async function getBlockedIds(me, { force = false } = {}) {

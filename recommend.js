@@ -16,6 +16,8 @@ import { buildTokens } from './search.js';
 import { firestore } from './firebase.js';
 import { listFollowing } from './follows.js';
 import { withBadge } from './badge-rules.js';
+import { ready as visReady, hiddenAuthors, isStaffViewer } from './visibility.js';
+import { isHiddenAccount } from './account-status.js';
 
 export const VERSION = 2;
 const POOL = { recent: 25, tokens: 15, prefs: 15, concepts: 12, authors: 15, social: 10 };
@@ -176,7 +178,8 @@ async function rankProfiles(me, ranked, social, following, prof) {
   } catch (e) { /* facultatif */ }
   ids = [...new Set(ids)];
   const users = (await Promise.all(ids.map(async (id) => { try { const s = await m.getDoc(m.doc(db, 'users', id)); return s.exists() ? withBadge({ id, ...s.data() }) : null; } catch (e) { return null; } }))).filter(Boolean);
-  return users.filter((u) => u.name && u.discoverable !== false && u.suspended !== true).map((u) => {
+  await visReady();
+  return users.filter((u) => u.name && u.discoverable !== false && !isHiddenAccount(u) && !hiddenAuthors().has(u.id)).map((u) => {
     const rel = byAuthor.get(u.id) || 0; const soc = social.get(u.id) || 0; const aff = prof.authors[u.id] || 0;
     const avg = u.ratingCount ? u.ratingSum / u.ratingCount : 0;
     const score = 1.4 * tanh(rel / 3) + 0.9 * tanh(soc / 2) + 1.2 * tanh(aff / 4) + (u.verified ? 0.5 : 0) + (u.type === 'agence' ? 0.2 : 0) + Math.log1p(u.followersCount || 0) / 6 + avg / 10 + Math.random() * 0.04;
@@ -262,14 +265,15 @@ export async function suggestProfiles({ me = null, limit = 8 } = {}) {
       const users = (await Promise.all(picks.map(async (r) => { try { const s = await m.getDoc(m.doc(db, 'users', r.id)); return s.exists() ? { u: withBadge({ id: r.id, ...s.data() }), reason: r.reason } : null; } catch (e) { return null; } }))).filter(Boolean);
       let following = new Set();
       try { following = new Set(await listFollowing(me.uid)); } catch (e) { /* ignoré */ }
-      return users.filter(({ u }) => !following.has(u.id) && u.discoverable !== false).slice(0, limit);
+      await visReady();
+      return users.filter(({ u }) => !following.has(u.id) && u.discoverable !== false && !isHiddenAccount(u) && !hiddenAuthors().has(u.id)).slice(0, limit);
     }
   }
   let following = new Set();
   if (me) { try { following = new Set(await listFollowing(me.uid)); } catch (e) { /* ignoré */ } }
   const snap = await m.getDocs(m.query(m.collection(db, 'users'), m.orderBy('followersCount', 'desc'), m.limit(15)));
   return snap.docs.map((d) => withBadge({ id: d.id, ...d.data() }))
-    .filter((u) => u.id !== (me && me.uid) && !following.has(u.id) && u.name && u.discoverable !== false)
+    .filter((u) => u.id !== (me && me.uid) && !following.has(u.id) && u.name && u.discoverable !== false && !isHiddenAccount(u) && !hiddenAuthors().has(u.id))
     .map((u) => ({ u, reason: u.verified ? 'Profil vérifié' : 'Populaire sur Imova', s: Math.log1p(u.followersCount || 0) + (u.verified ? 1 : 0) }))
     .sort((a, b) => b.s - a.s).slice(0, limit).map(({ u, reason }) => ({ u, reason }));
 }

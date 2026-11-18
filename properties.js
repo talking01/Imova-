@@ -1,6 +1,8 @@
 // Imova — properties.js : lecture des annonces (Firestore) et de leurs auteurs.
 import { firestore } from './firebase.js';
 import { isBadgeActive, untilMs } from './badge-rules.js';
+import { ready as visReady, hiddenAuthors, isStaffViewer } from './visibility.js';
+import { isHiddenAccount } from './account-status.js';
 
 // Une annonce stocke « images » (15 max) et « video » (1 max). Pour l'affichage on les rassemble dans media[].
 // Seules les adresses Cloudinary sont affichées : une adresse venant d'ailleurs est ignorée (protection des lecteurs).
@@ -34,10 +36,12 @@ async function runQuery(m, q) {
 }
 
 // Les annonces masquées par la modération sont retirées, sauf si on les demande explicitement (auteur, équipe)
-const mapDocs = (snap, includeHidden = false) => snap.docs.map((d) => normalizeProperty({ id: d.id, ...d.data() })).filter((p) => includeHidden || p.status !== 'hidden');
+// Retire les annonces masquées par la modération et celles des personnes bloquées (dans les deux sens)
+const mapDocs = (snap, includeHidden = false) => snap.docs.map((d) => normalizeProperty({ id: d.id, ...d.data() })).filter((p) => (includeHidden || p.status !== 'hidden') && !hiddenAuthors().has(p.authorId));
 
 // Lit les annonces, les plus récentes d'abord, par lots (fil continu)
 export async function fetchProperties({ after = null, size = 8 } = {}) {
+  await visReady();
   const fs = await firestore();
   if (!fs) return { items: [], cursor: null, done: true, configured: false };
   const { m, db } = fs;
@@ -55,12 +59,14 @@ export async function fetchProperties({ after = null, size = 8 } = {}) {
 }
 
 export async function getProperty(id, { includeHidden = false } = {}) {
+  await visReady();
   const fs = await firestore();
   if (!fs) return null;
   const { m, db } = fs;
   const snap = await m.getDoc(m.doc(db, 'properties', id));
   if (!snap.exists()) return null;
   const p = normalizeProperty({ id: snap.id, ...snap.data() });
+  if (hiddenAuthors().has(p.authorId) && !includeHidden) return null;
   return !includeHidden && p.status === 'hidden' ? null : p;
 }
 
@@ -79,7 +85,8 @@ function fromSession(id) {
   } catch (e) { return null; }
 }
 
-export async function loadAuthors(ids) {
+export async function loadAuthors(ids, { raw = false } = {}) {
+  await visReady();
   const fs = await firestore();
   const unique = [...new Set(ids.filter(Boolean))];
   await Promise.all(unique.map(async (id) => {
@@ -91,17 +98,27 @@ export async function loadAuthors(ids) {
       const snap = await fs.m.getDoc(fs.m.doc(fs.db, 'users', id));
       if (snap.exists()) {
         const d = snap.data();
-        const v = { name: d.name || '', photoUrl: d.photoUrl || '', type: d.type || '', verified: isBadgeActive(d), verifiedRaw: d.verified === true, verifiedUntil: untilMs(d) };
+        const v = { name: d.name || '', photoUrl: d.photoUrl || '', type: d.type || '', verified: isBadgeActive(d), verifiedRaw: d.verified === true, verifiedUntil: untilMs(d), accountHidden: isHiddenAccount(d) };
         memory.set(id, v);
         try { sessionStorage.setItem('imova-author-' + id, JSON.stringify({ t: Date.now(), v })); } catch (e) { /* plein */ }
       }
     } catch (e) { /* auteur illisible : on affichera « Utilisateur » */ }
   }));
-  return memory;
+  // Personne bloquée (dans un sens ou dans l'autre), compte suspendu ou supprimé : seulement « Utilisateur », sans photo ni badge
+  // (l'équipe d'administration voit les vraies informations ; raw = true pour les pages d'administration)
+  const out = new Map();
+  unique.forEach((id) => {
+    const v = memory.get(id);
+    const hide = !raw && !isStaffViewer() && (hiddenAuthors().has(id) || (v && v.accountHidden));
+    if (hide) out.set(id, { name: 'Utilisateur', photoUrl: '', type: '', verified: false, hidden: true });
+    else if (v) out.set(id, v);
+  });
+  return out;
 }
 
 // Publications épinglées d'un auteur (filtre simple, aucun index nécessaire)
 export async function fetchPinned(authorId, { includeHidden = false } = {}) {
+  await visReady();
   const fs = await firestore();
   if (!fs) return [];
   const { m, db } = fs;
@@ -113,6 +130,7 @@ export async function fetchPinned(authorId, { includeHidden = false } = {}) {
 
 // Publications d'un auteur, les plus récentes d'abord (demande l'index « authorId + createdAt », voir GUIDE-FIREBASE.md)
 export async function fetchByAuthor(authorId, { after = null, size = 8, includeHidden = false } = {}) {
+  await visReady();
   const fs = await firestore();
   if (!fs) return { items: [], cursor: null, done: true };
   const { m, db } = fs;
@@ -180,6 +198,7 @@ export async function countByAuthor(authorId) {
 // ───────── Pour la recherche et les recommandations
 // Annonces contenant au moins un des mots donnés (jusqu'à 10 mots) ; sans tri : on classe dans le navigateur
 export async function fetchByTokens(tokens, size = 30) {
+  await visReady();
   const list = [...new Set(tokens)].slice(0, 10);
   if (!list.length) return [];
   const { m, db } = await need();
@@ -189,6 +208,7 @@ export async function fetchByTokens(tokens, size = 30) {
 
 // Dernières annonces de plusieurs auteurs (jusqu'à 10) — utilise l'index « authorId + createdAt »
 export async function fetchFromAuthors(authorIds, size = 20) {
+  await visReady();
   const list = [...new Set(authorIds)].slice(0, 10);
   if (!list.length) return [];
   const { m, db } = await need();
@@ -198,11 +218,12 @@ export async function fetchFromAuthors(authorIds, size = 20) {
 
 // Annonces par identifiants (favoris)
 export async function fetchByIds(ids) {
+  await visReady();
   const { m, db } = await need();
   const out = await Promise.all(ids.map(async (id) => {
     try {
       const s = await m.getDoc(m.doc(db, 'properties', id));
-      return s.exists() && s.data().status !== 'hidden' ? normalizeProperty({ id: s.id, ...s.data() }) : null;
+      return s.exists() && s.data().status !== 'hidden' && !hiddenAuthors().has(s.data().authorId) ? normalizeProperty({ id: s.id, ...s.data() }) : null;
     } catch (e) { return null; }
   }));
   return out.filter(Boolean);

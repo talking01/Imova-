@@ -1,7 +1,7 @@
 // Imova — profile.js : page profile.html (mon profil sans id ; le profil d'un autre avec ?id=...)
 import { whenReady } from './auth.js';
 import { setMyPhoto } from './auth.js';
-import { requireAuth, loginUrl } from './guards.js';
+import { requireAuth, requireActive, loginUrl } from './guards.js';
 import { getUserDoc, updateMyProfile } from './users.js';
 import { fetchPinned, fetchByAuthor, forgetAuthor, countByAuthor } from './properties.js';
 import { createPostCard } from './postcard.js';
@@ -11,6 +11,8 @@ import { uploadImage, checkImageFile, cloudinaryReady } from './cloudinary.js';
 import { sanitizeRich, openRichEditor } from './richtext.js';
 import { openModal, openSheet } from './modal.js';
 import { openQrCard } from './qr-card.js';
+import { ready as visReady, isStaffViewer, isBlockedEither } from './visibility.js';
+import { isHiddenAccount } from './account-status.js';
 import { openViewer, optimized } from './viewer.js';
 import { copyLink, shareLink, profileUrl } from './sharing.js';
 import { icon, hydrateIcons } from './icons.js';
@@ -282,7 +284,7 @@ function renderTabContent() {
 
 // ── Actions
 async function toggleFollow(btn) {
-  if (!requireAuth('suivre ce profil')) return;
+  if (!requireActive('suivre ce profil')) return;
   btn.disabled = true;
   try {
     if (state.following) {
@@ -318,12 +320,12 @@ function askBlock() {
   if (!requireAuth('bloquer ce profil')) return;
   openModal({
     title: `Bloquer ${state.u.name || 'ce profil'} ?`,
-    html: '<p class="muted">Cette personne ne pourra plus vous envoyer de messages. Vous pourrez la débloquer depuis vos messages (Réglages → Contacts bloqués).</p>',
-    actions: [{ label: 'Annuler' }, { label: 'Bloquer', danger: true, onClick: async () => { try { await blockUser(state.me.uid, state.id); toast('Contact bloqué'); } catch (e) { toast(explainError(e)); return false; } } }]
+    html: '<p class="muted">Cette personne ne pourra plus vous envoyer de messages et vous ne vous verrez plus (profil, annonces, recherche). Vous pourrez la débloquer depuis vos messages (Réglages → Contacts bloqués).</p>',
+    actions: [{ label: 'Annuler' }, { label: 'Bloquer', danger: true, onClick: async () => { try { await blockUser(state.me.uid, state.id); toast('Contact bloqué'); setTimeout(() => location.replace('index.html'), 700); } catch (e) { toast(explainError(e)); return false; } } }]
   });
 }
 
-function showMenu() {
+async function showMenu() {
   const url = profileUrl(state.id);
   const items = [];
   if (!state.own) {
@@ -334,6 +336,10 @@ function showMenu() {
   items.push({ icon: 'link', label: 'Copier le lien', onClick: () => copyLink(url) });
   items.push({ icon: 'share', label: 'Partager', onClick: () => shareLink(state.u.name || 'Profil Imova', url) });
   items.push({ icon: 'qr', label: 'QR code', onClick: () => openQrCard({ url, name: state.u.name || 'Profil Imova' }) });
+  // Équipe d'administration : modération du compte directement depuis son profil
+  if (!state.own) {
+    try { const { accountItems } = await import('./moderation-menu.js'); items.push(...(await accountItems({ id: state.id, name: state.u.name }, { onChange: () => location.reload() }))); } catch (e) { /* ignoré */ }
+  }
   openSheet(items);
 }
 
@@ -346,7 +352,7 @@ main.addEventListener('click', (e) => {
     case 'follow': toggleFollow(btn); break;
     case 'message': openChat(); break;
     case 'rate':
-      if (requireAuth('noter ce profil')) openRatingModal({ targetId: state.id, reviewerId: state.me.uid, onDone: refreshUser });
+      if (requireActive('laisser un avis')) openRatingModal({ targetId: state.id, reviewerId: state.me.uid, onDone: refreshUser });
       break;
     case 'view-avatar': openViewer([{ url: state.u.photoUrl, type: 'image' }]); break;
     case 'edit-avatar': changeImage('avatar'); break;
@@ -389,6 +395,9 @@ async function run() {
   let u;
   try {
     u = await getUserDoc(id);
+    // profil bloqué (dans un sens ou l'autre), suspendu ou supprimé : indisponible pour tout le monde sauf l'équipe
+    await visReady();
+    if (u && !(me && me.uid === id) && !isStaffViewer() && (isBlockedEither(id) || isHiddenAccount(u))) u = null;
   } catch (e) {
     console.error(e);
     main.innerHTML = emptyState({ iconName: 'user', title: 'Chargement impossible', text: explainError(e) });
@@ -401,7 +410,7 @@ async function run() {
     u ? `<button class="icon-btn" id="moreBtn" aria-label="Plus d'options">${icon('more')}</button>` : '', 'static', u && !state.own ? verifiedMark(u.verified, 18) : '');
   bindBack();
   if (!u) {
-    main.innerHTML = emptyState({ iconName: 'user', title: 'Profil introuvable', text: "Ce profil n'existe pas ou a été supprimé.", actionLabel: "Retour à l'accueil", actionHref: 'index.html' });
+    main.innerHTML = emptyState({ iconName: 'user', title: 'Profil introuvable', text: "Ce profil n'est pas disponible.", actionLabel: "Retour à l'accueil", actionHref: 'index.html' });
     hydrateIcons();
     return;
   }

@@ -23,7 +23,7 @@ let me, prefs, convs = [], stored = [], cursor = null, doneStored = false, posts
 const seenKey = () => 'imova-notif-seen-' + me.uid;
 let seenAt = 0;
 
-const IC = { message: 'message', follow: 'user', like: 'thumb', review: 'star', moderation: 'shield', verification: 'badge', system: 'info', post: 'building' };
+const IC = { message: 'message', follow: 'user', like: 'thumb', review: 'star', moderation: 'shield', verification: 'badge', system: 'badge', post: 'building' };
 const PREF_OF = { follow: 'follows', like: 'likes', review: 'reviews' };
 const nameOf = (id) => (authors.get(id) || {}).name || 'Utilisateur';
 
@@ -46,9 +46,10 @@ function allItems() {
     posts.forEach((p) => out.push({ key: 'p' + p.id, kind: 'post', unread: millis(p.createdAt) > seenAt, time: millis(p.createdAt), title: `${nameOf(p.authorId)} a publié une annonce`, verified: (authors.get(p.authorId) || {}).verified, body: p.title, link: `property.html?id=${encodeURIComponent(p.id)}` }));
   }
   stored.forEach((n) => {
+    if (n.actorId && (authors.get(n.actorId) || {}).hidden) return; // personne bloquée, suspendue ou supprimée
     const pref = PREF_OF[n.type];
     if (pref && prefs.notif[pref] === false) return;
-    out.push({ key: 'n' + n.id, kind: n.type, stored: n.id, unread: !n.read, time: millis(n.createdAt), title: n.title, verified: (authors.get(n.actorId) || {}).verified, body: n.body, link: n.link || 'notifications.html' });
+    out.push({ key: 'n' + n.id, kind: n.type, stored: n.id, unread: !n.read, time: millis(n.createdAt), title: n.title, official: n.type === 'system', verified: (authors.get(n.actorId) || {}).verified, body: n.body, link: n.link || 'notifications.html' });
   });
   return out.sort((a, b) => b.time - a.time);
 }
@@ -67,7 +68,7 @@ function render() {
     ${items.length ? `<div class="card" role="list">${items.map((i) => `
       <div class="ntf ${i.unread ? 'unread' : ''}" role="listitem" data-key="${esc(i.key)}">
         <a class="ntf-ic ${esc(i.kind)}" href="${esc(i.link)}" tabindex="-1" aria-hidden="true">${icon(IC[i.kind] || 'bell', 20)}</a>
-        <a class="ntf-body" href="${esc(i.link)}"><strong>${esc(i.title)}${verifiedMark(i.verified, 14)}</strong>${i.body ? `<span>${esc(i.body)}</span>` : ''}</a>
+        <a class="ntf-body" href="${esc(i.link)}">${i.official ? `<small class="muted">Imova ${verifiedMark(true, 13)} · message officiel</small><strong>${esc(i.title)}</strong>` : `<strong>${esc(i.title)}${verifiedMark(i.verified, 14)}</strong>`}${i.body ? `<span>${esc(i.body)}</span>` : ''}</a>
         <span class="ntf-time">${esc(i.time ? timeAgo(new Date(i.time)) : '')}</span>
         ${i.unread ? '<span class="ntf-dot" aria-label="Non lue"></span>' : ''}
         ${i.stored ? `<button class="ntf-x" data-del="${esc(i.stored)}" aria-label="Supprimer cette notification">${icon('close', 16)}</button>` : ''}

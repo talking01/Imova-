@@ -5,6 +5,7 @@ import { icon, hydrateIcons } from './icons.js';
 import { esc, explainError } from './utils.js';
 import { buckets } from './stats.js';
 import { sweepExpired, remindExpiring } from './badge-expiry.js';
+import { sweepRestrictions } from './account-actions.js';
 
 const main = document.getElementById('main');
 const ACTIONS = { verification_approved: 'a approuvé un badge', verification_rejected: 'a refusé un badge', verification_revoked: 'a retiré un badge', user_suspend: 'a suspendu un compte', user_unsuspend: 'a réactivé un compte', user_verify: 'a accordé un badge', user_unverify: 'a retiré un badge', property_hide: 'a masqué une annonce', property_show: 'a réactivé une annonce', property_delete: 'a supprimé une annonce', review_delete: 'a supprimé un avis', report_resolved: 'a résolu un signalement', report_dismissed: 'a rejeté un signalement', report_reviewing: 'a pris un signalement en charge', settings_update: 'a modifié les paramètres', admin_add: 'a ajouté un membre', admin_role: 'a changé un rôle', admin_remove: 'a retiré un membre' };
@@ -17,14 +18,16 @@ const card = (ic, label, val, href, alert = false) => `<a class="card adm-card $
   const { m, db, rank } = ctx;
   try {
     const q = (col, ...f) => count(ctx, col, ...f).catch(() => 0);
-    const [users, agences, verified, suspended, props, hidden, reviews, reportsOpen, pending] = await Promise.all([
+    const [users, agences, verified, suspended, props, hidden, reviews, reportsOpen, pending, examOpen] = await Promise.all([
       q('users'), q('users', ['type', '==', 'agence']), q('users', ['verified', '==', true]), q('users', ['suspended', '==', true]),
       q('properties'), q('properties', ['status', '==', 'hidden']), q('reviews'), q('reports', ['status', '==', 'open']),
-      rank >= 2 ? q('verificationRequests', ['status', '==', 'pending']) : Promise.resolve(0)
+      rank >= 2 ? q('verificationRequests', ['status', '==', 'pending']) : Promise.resolve(0),
+      rank >= 2 ? q('moderation', ['status', 'in', ['restricted', 'suspended']]) : Promise.resolve(0)
     ]);
     // Badges : fin automatique des badges expirés et rappels (7 jours avant la fin) à chaque ouverture de l'administration
     let swept = 0; let soon = [];
-    if (rank >= 2) { try { swept = await sweepExpired(ctx); soon = await remindExpiring(ctx); } catch (e) { console.error('Balayage des badges', e); } }
+    let liftedRestr = 0;
+    if (rank >= 2) { try { swept = await sweepExpired(ctx); soon = await remindExpiring(ctx); } catch (e) { console.error('Balayage des badges', e); } try { liftedRestr = await sweepRestrictions(ctx); } catch (e) { console.error('Balayage des restrictions', e); } }
     // 14 derniers jours : nouveaux comptes et nouvelles annonces
     const to = new Date(); const from = new Date(to.getTime() - 14 * 86400000);
     const bk = buckets(from, to, 14);
@@ -47,6 +50,7 @@ const card = (ic, label, val, href, alert = false) => `<a class="card adm-card $
       <div class="adm-title"><h1>Tableau de bord</h1></div>
       <section class="adm-grid">
         ${card('flag', 'Signalements ouverts', reportsOpen, 'admin-reports.html', true)}
+        ${rank >= 2 ? card('shield', 'Examens en cours', examOpen, 'admin-examinations.html', true) : ''}
         ${rank >= 2 ? card('badge', 'Vérifications en attente', pending, 'admin-verifications.html', true) : ''}
         ${card('building', 'Annonces masquées', hidden, 'admin-moderation.html')}
         ${rank >= 2 ? card('lock', 'Comptes suspendus', suspended, 'admin-users.html') : ''}
@@ -59,6 +63,7 @@ const card = (ic, label, val, href, alert = false) => `<a class="card adm-card $
         ${card('building', 'Annonces', props, 'admin-properties.html')}
         ${card('star', 'Avis', reviews, 'admin-moderation.html')}
       </section>
+      ${liftedRestr ? `<div class="notice">${liftedRestr} restriction${liftedRestr > 1 ? 's' : ''} terminée${liftedRestr > 1 ? 's' : ''} : ${liftedRestr > 1 ? 'comptes rétablis' : 'compte rétabli'}, ${liftedRestr > 1 ? 'personnes prévenues' : 'personne prévenue'}.</div>` : ''}
       ${swept ? `<div class="notice">${swept} badge${swept > 1 ? 's' : ''} expiré${swept > 1 ? 's' : ''} retiré${swept > 1 ? 's' : ''} automatiquement ; les titulaires ont été prévenus.</div>` : ''}
       ${soon.length ? `<div class="card" style="padding:6px 0"><h4 style="padding:8px 14px 0">Badges qui expirent dans 7 jours (titulaires prévenus)</h4>${soon.map((u) => `<a class="adm-row" href="profile.html?id=${encodeURIComponent(u.id)}"><span class="grow"><strong>${esc(u.name || 'Utilisateur')}</strong><small>Fin le ${esc(fmtDate(u.verifiedUntil))}</small></span></a>`).join('')}</div>` : ''}
       <section class="adm-split">

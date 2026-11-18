@@ -8,25 +8,20 @@ import { esc, toast, explainError } from './utils.js';
 import { openModal } from './modal.js';
 import { loadAuthors } from './properties.js';
 
-export const RANK = { moderator: 1, admin: 2, owner: 3 };
-
-// Le rôle est lu de façon tolérante (majuscules, espaces, guillemets, accents, synonymes) : « Owner », " owner ", « Propriétaire »...
-const ALIASES = { owner: 'owner', proprietaire: 'owner', superadmin: 'owner', super_admin: 'owner', 'super admin': 'owner', admin: 'admin', administrateur: 'admin', administrator: 'admin', moderator: 'moderator', moderateur: 'moderator', mod: 'moderator' };
-export function normalizeRole(raw) {
-  const t = String(raw == null ? '' : raw).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/["'`]/g, '').trim();
-  return ALIASES[t] || '';
-}
-export const ROLE_LABEL = { owner: 'Propriétaire', admin: 'Administrateur', moderator: 'Modérateur' };
+import { RANK, ROLE_LABEL, normalizeRole } from './roles.js';
+export { RANK, ROLE_LABEL, normalizeRole };
 
 // [fichier, titre, icône, rang minimal]
 const NAV = [
   ['admin.html', 'Tableau de bord', 'chart', 1],
   ['admin-reports.html', 'Signalements', 'flag', 1],
+  ['admin-examinations.html', 'Examens', 'shield', 2],
   ['admin-verifications.html', 'Vérifications', 'badge', 2],
-  ['admin-moderation.html', 'Modération', 'shield', 1],
+  ['admin-moderation.html', 'Modération', 'eyeOff', 1],
   ['admin-properties.html', 'Annonces', 'building', 1],
   ['admin-users.html', 'Utilisateurs', 'users', 2],
   ['admin-agencies.html', 'Agences', 'home', 2],
+  ['admin-notifications.html', 'Notifications', 'bell', 2],
   ['admin-stats.html', 'Statistiques', 'trending', 2],
   ['admin-settings.html', 'Paramètres', 'settings2', 3]
 ];
@@ -67,6 +62,14 @@ export async function initAdmin({ minRank = 1, active = '' } = {}) {
     return null;
   }
   if (rank < minRank) { denied('Droits insuffisants', `Votre rôle (${ROLE_LABEL[role]}) ne permet pas d'ouvrir cette page.`); return null; }
+  try { window.__imovaRole = ROLE_LABEL[role]; } catch (e) { /* ignoré */ }
+  // Sonde des droits : l'écran vous reconnaît (rang), mais les règles Firestore doivent le confirmer
+  let mismatch = '';
+  if (rank >= 2) {
+    try { await fs.m.getDocs(fs.m.query(fs.m.collection(fs.db, 'auditLog'), fs.m.limit(1))); } catch (e) {
+      if (e && e.code === 'permission-denied') mismatch = `Les règles Firestore ne reconnaissent pas votre rôle : le champ <code>role</code> de <code>admins/${esc(me.uid)}</code> vaut « ${esc(String(raw))} ». Écrivez exactement <code>owner</code>, <code>admin</code> ou <code>moderator</code> (sans espace) et publiez la dernière version de <code>firestore.rules</code>.`;
+    }
+  }
   const items = NAV.filter((n) => n[3] <= rank);
   document.getElementById('adminHead').innerHTML = `
     <header class="adm-head glass">
@@ -78,6 +81,7 @@ export async function initAdmin({ minRank = 1, active = '' } = {}) {
       </div>
       <nav class="adm-nav" aria-label="Administration">${items.map((n) => `<a href="${n[0]}" ${n[0] === active ? 'aria-current="page"' : ''}>${icon(n[2], 16)}<span>${esc(n[1])}</span><span class="count" data-count="${n[0]}" hidden></span></a>`).join('')}</nav>
     </header>`;
+  if (mismatch) document.getElementById('adminHead').insertAdjacentHTML('beforeend', `<div class="notice" role="alert" style="margin:8px">${mismatch}</div>`);
   hydrateIcons(document.getElementById('adminHead'));
   paintCounts(fs, rank);
   return { me, role, rank, m: fs.m, db: fs.db };
@@ -110,7 +114,7 @@ export const since = (t) => {
 export const pill = (text, kind = '') => `<span class="pill ${kind}">${esc(text)}</span>`;
 
 // Noms des utilisateurs (mémoire de session) : Map id → { name, photoUrl, verified, type }
-export async function names(ids) { return loadAuthors(ids); }
+export async function names(ids) { return loadAuthors(ids, { raw: true }); }
 export const nameOf = (map, id) => (map.get(id) && map.get(id).name) || 'Utilisateur';
 
 // Fenêtre de confirmation avec saisie facultative ou obligatoire d'un motif

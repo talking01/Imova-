@@ -27,7 +27,11 @@ export function whenReady() {
               saveAccount({ slot: activeSlot(), uid: current.uid, email: current.email, name: current.name, photoUrl: current.photoUrl });
             }
             listeners.forEach((cb) => cb(current));
-            if (first) { first = false; resolve(current); }
+            if (first) {
+              first = false; resolve(current);
+              // état du compte (suspendu, supprimé, restreint) appliqué à chaque page
+              if (current) import('./account-guard.js').then((g) => g.guardAccount(current)).catch(() => {});
+            }
           });
         });
       } catch (e) {

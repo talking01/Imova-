@@ -3,7 +3,7 @@ import { whenReady } from './auth.js';
 import { loginUrl } from './guards.js';
 import { getUserDoc } from './users.js';
 import { fetchByAuthor } from './properties.js';
-import { timeline, countEvents } from './stats.js';
+import { timeline, countEvents, periodGroups } from './stats.js';
 import { lineChart, barChart } from './charts.js';
 import { pageHeader, bindBack, emptyState, skeletonCard, stars, average, formatAverage } from './components.js';
 import { isConfigured } from './firebase.js';
@@ -44,8 +44,8 @@ async function loadPeriod() {
       countEvents(me.uid, 'view', prevFrom, from), countEvents(me.uid, 'profile', prevFrom, from), countEvents(me.uid, 'conversation', prevFrom, from)
     ]);
     const sum = (a) => a.reduce((x, y) => x + y, 0);
-    const step = (to - from) / n;
-    const labels = Array.from({ length: n }, (_, i) => labelOf(new Date(from.getTime() + i * step), step));
+    const groups = periodGroups(from, to, n);
+    const labels = groups.map((g) => { const t = new Date(Date.UTC(+g[0].slice(0, 4), +g[0].slice(4, 6) - 1, +g[0].slice(6, 8))); return labelOf(t, g.length * 86400000); });
     const totalLikes = myPosts.reduce((s, p) => s + (Number(p.likesCount) || 0), 0);
     const totalViews = myPosts.reduce((s, p) => s + (Number(p.viewsCount) || 0), 0);
     const avg = average(user);
@@ -83,7 +83,7 @@ async function loadPeriod() {
     console.error(e);
     box.innerHTML = emptyState({
       iconName: 'chart', title: 'Statistiques indisponibles',
-      text: e && e.code === 'failed-precondition' ? "Un index Firestore est nécessaire : créez l'index « events » (voir GUIDE-FIREBASE.md, étape A8)." : explainError(e)
+      text: explainError(e, 'consulter vos statistiques')
     });
     hydrateIcons(box);
   }

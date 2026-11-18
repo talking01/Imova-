@@ -1,7 +1,7 @@
 // Imova — guards.js : protège les actions et les pages qui demandent un compte.
 import { getUser, isSettled, whenReady, expiredAccount } from './auth.js';
 import { openModal } from './modal.js';
-import { toast, esc } from './utils.js';
+import { toast, esc, guardAction } from './utils.js';
 
 // Démarre la restauration de la session dès que la page se charge
 whenReady();
@@ -17,6 +17,11 @@ export function loginUrl() {
   let url = 'login.html?next=' + encodeURIComponent(currentPage());
   if (exp) url += `&slot=${encodeURIComponent(exp.slot)}&email=${encodeURIComponent(exp.email || '')}`;
   return url;
+}
+
+// Action réservée aux comptes actifs (publier, noter, aimer, suivre...) : connecté ET ni restreint ni suspendu, avec un message clair sinon
+export function requireActive(action = 'effectuer cette action') {
+  return requireAuth(action) && guardAction(action);
 }
 
 // Pour une action (J'aime, Discuter...) : renvoie true si connecté, sinon invite à se connecter

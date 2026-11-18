@@ -37,7 +37,8 @@ async function run() {
       more.innerHTML = '';
       const res = await listFollowers(id, { after: cursor });
       const authors = await loadAuthors(res.ids);
-      res.ids.forEach((uid) => people.insertAdjacentHTML('beforeend', person(uid, authors.get(uid) || {})));
+      // les comptes bloqués (dans un sens ou l'autre), suspendus ou supprimés n'apparaissent pas
+      res.ids.filter((uid) => !(authors.get(uid) || {}).hidden).forEach((uid) => people.insertAdjacentHTML('beforeend', person(uid, authors.get(uid) || {})));
       cursor = res.cursor;
       if (!people.children.length) people.outerHTML = emptyState({ iconName: 'users', title: 'Aucun abonné', text: "Personne ne suit ce profil pour l'instant." });
       if (!res.done) { more.innerHTML = '<button class="btn btn-ghost" id="loadMore">Voir plus</button>'; more.querySelector('#loadMore').onclick = () => load().catch(fail); }

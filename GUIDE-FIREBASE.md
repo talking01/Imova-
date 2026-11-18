@@ -142,6 +142,15 @@ Ensuite, le propriétaire ajoute ou retire des membres lui-même dans **Administ
 5. **Fin des badges** (sans serveur) : un badge dont la date de fin est passée **n'est plus affiché partout, immédiatement**. La base est mise à jour (badge retiré, titulaire prévenu) dès que le titulaire ouvre l'application, ou dès qu'un administrateur ouvre **Administration → Tableau de bord** (balayage de tous les badges expirés et rappels 7 jours avant la fin). Ouvre le tableau de bord de l'administration au moins une fois par jour. Un traitement 100 % automatique (même sans connexion de personne) demanderait une fonction planifiée (plan Blaze) : non inclus.
 6. **QR code** : rien à configurer. Il est créé dans l'application (aucun service externe) et l'adresse qu'il contient est celle de ton site.
 
+### A11 quinquies. Comptes restreints, suspendus, supprimés ; notifications personnalisées : ce qu'il faut configurer
+1. **Règles Firestore** : publier le nouveau `firestore.rules` (A7). **Obligatoire.** Il ajoute : l'état des comptes (restreint, suspendu, supprimé), le dossier d'examen (`moderation`), les notes internes (`moderationNotes`), les notifications personnalisées (`broadcasts`, `sentNotifications`) et le blocage réciproque.
+2. **Rôle du propriétaire** : les règles reconnaissent maintenant `owner` même avec des majuscules ou des espaces en trop (« Owner », « owner »), ainsi que « propriétaire ». Si, en tant que propriétaire, une action affiche « Vous n'êtes pas autorisé… », la page d'administration affiche en haut un encadré qui indique ce que contient réellement le champ `role` de votre document `admins/UID`. Corrigez-le (exactement `owner`, `admin` ou `moderator`) et **republiez** `firestore.rules`.
+3. **Statistiques des comptes** : l'**index « events » n'est plus nécessaire** (vous pouvez le supprimer). Les nouvelles vues et visites sont comptées par jour sans index. Les événements enregistrés avant cette étape n'ont pas le champ `day` et ne sont donc plus comptés (les chiffres repartent de zéro).
+4. **Aucun autre index** à créer.
+5. **Comptes restreints ou suspendus** : l'état est appliqué à chaque page (avec une mémoire de 45 secondes) et **les règles Firestore l'imposent côté serveur**. Un compte supprimé par l'équipe reste dans la base (consultable dans l'administration) mais disparaît de la plateforme.
+6. **Notifications à toute une catégorie** (tout le monde, agences, particuliers) : une seule écriture ; chaque compte en garde une copie à sa prochaine ouverture de l'application.
+7. **Restrictions terminées** : levées automatiquement quand un administrateur ouvre **Administration → Tableau de bord** (et l'affichage ne tient plus compte d'une restriction dont la date est passée).
+
 ### A12. Bonnes pratiques
 - Ne passe **jamais** Firestore en mode test, ne publie jamais de clé secrète.
 - Garde la validation en deux étapes sur le compte Google propriétaire.
